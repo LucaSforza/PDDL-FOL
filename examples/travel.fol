@@ -3,11 +3,11 @@ problem travel {
   types place;
   objects { home, office: place; }
   predicates { At(place); Road(place, place); }
-  init: At(home) & Road(home, office);
+  init: At(home) and Road(home, office);
   goal: At(office);
 
   action Move(from: place, to: place) {
-    pre: At(from) & Road(from, to) & from != to;
-    effect: !At(from) & At(to);
+    pre: At(from) and Road(from, to) and from != to;
+    effect: not At(from) and At(to);
   }
 }

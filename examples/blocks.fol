@@ -3,15 +3,15 @@ problem blocks {
   types block;
   objects { a, b, c: block; }
   predicates { On(block, block); OnTable(block); Clear(block); }
-  init: On(c, a) & OnTable(a) & OnTable(b) & Clear(c) & Clear(b);
-  goal: On(a, b) & On(b, c) & OnTable(c);
+  init: On(c, a) and OnTable(a) and OnTable(b) and Clear(c) and Clear(b);
+  goal: On(a, b) and On(b, c) and OnTable(c);
 
   action Unstack(x: block, y: block) {
-    pre: On(x, y) & Clear(x);
-    effect: !On(x, y) & OnTable(x) & Clear(y);
+    pre: On(x, y) and Clear(x);
+    effect: not On(x, y) and OnTable(x) and Clear(y);
   }
   action Stack(x: block, y: block) {
-    pre: OnTable(x) & Clear(x) & Clear(y) & x != y;
-    effect: !OnTable(x) & On(x, y) & !Clear(y);
+    pre: OnTable(x) and Clear(x) and Clear(y) and x != y;
+    effect: not OnTable(x) and On(x, y) and not Clear(y);
   }
 }

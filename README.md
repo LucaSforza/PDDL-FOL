@@ -8,15 +8,16 @@ first-order preconditions and goals on finite models.
 
 ```text
 action Move(b: block, from: object, to: object) {
-  pre: On(b, from) ∧ b ≠ to ∧ from ≠ to
-       ∧ (∀ z: block . ¬On(z, b))
-       ∧ (to ≠ table → (∀ z: block . ¬On(z, to)));
-  effect: ¬On(b, from) ∧ On(b, to);
+  pre: On(b, from) and b != to and from != to
+       and (forall z: block . not On(z, b))
+       and (to != table implies (forall z: block . not On(z, to)));
+  effect: not On(b, from) and On(b, to);
 }
 ```
 
 This action is part of the complete [quantified blocks model](examples/blocks-quantified.fol).
-ASCII equivalents such as `&`, `!`, `!=`, and `forall` are supported too.
+The DSL uses ASCII words `not`, `and`, `or`, `implies`, `forall`, and `exists`.
+ASCII symbols such as `!`, `&`, `->`, and `!=` remain valid.
 
 ```sh
 cargo run -- solve examples/travel.fol

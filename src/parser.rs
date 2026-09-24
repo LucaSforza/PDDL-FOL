@@ -105,13 +105,24 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
     let mut chars = source.char_indices().peekable();
     let (mut line, mut column) = (1usize, 1usize);
     while let Some((_, ch)) = chars.next() {
+        if !ch.is_ascii() {
+            return Err(Error::new(format!(
+                "{line}:{column}: non-ASCII character '{ch}'"
+            )));
+        }
         if ch == '\n' {
             line += 1;
             column = 1;
             continue;
         }
         if ch == ';' {
+            column += 1;
             for (_, c) in chars.by_ref() {
+                if !c.is_ascii() {
+                    return Err(Error::new(format!(
+                        "{line}:{column}: non-ASCII character '{c}'"
+                    )));
+                }
                 if c == '\n' {
                     line += 1;
                     column = 1;
@@ -141,14 +152,14 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
             if next.is_whitespace() || next == '(' || next == ')' || next == ';' {
                 break;
             }
+            if !next.is_ascii() {
+                return Err(Error::new(format!(
+                    "{line}:{column}: non-ASCII character '{next}'"
+                )));
+            }
             chars.next();
             text.push(next);
             column += 1;
-        }
-        if !text.is_ascii() {
-            return Err(Error::new(format!(
-                "{start_line}:{start_column}: identifiers must be ASCII"
-            )));
         }
         result.push(Token {
             text: text.to_ascii_lowercase(),

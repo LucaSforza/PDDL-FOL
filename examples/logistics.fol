@@ -8,20 +8,20 @@ problem logistics {
     Road(location, location);
     In(package, truck);
   }
-  init: AtPackage(parcel, depot) & AtTruck(van, depot)
-    & Road(depot, hub) & Road(hub, depot);
+  init: AtPackage(parcel, depot) and AtTruck(van, depot)
+    and Road(depot, hub) and Road(hub, depot);
   goal: AtPackage(parcel, hub);
 
   action Drive(t: truck, from: location, to: location) {
-    pre: AtTruck(t, from) & Road(from, to);
-    effect: !AtTruck(t, from) & AtTruck(t, to);
+    pre: AtTruck(t, from) and Road(from, to);
+    effect: not AtTruck(t, from) and AtTruck(t, to);
   }
   action Load(p: package, t: truck, l: location) {
-    pre: AtPackage(p, l) & AtTruck(t, l);
-    effect: !AtPackage(p, l) & In(p, t);
+    pre: AtPackage(p, l) and AtTruck(t, l);
+    effect: not AtPackage(p, l) and In(p, t);
   }
   action Unload(p: package, t: truck, l: location) {
-    pre: In(p, t) & AtTruck(t, l);
-    effect: !In(p, t) & AtPackage(p, l);
+    pre: In(p, t) and AtTruck(t, l);
+    effect: not In(p, t) and AtPackage(p, l);
   }
 }

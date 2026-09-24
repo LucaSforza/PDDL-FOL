@@ -3,9 +3,11 @@
 ## FOLPlan DSL (.fol)
 
 Slide-style declarations, infix logical operators, and `//` comments through
-the end of the line. ASCII identifiers: initial letter, followed by letters,
-digits, `_`, or `-`; names normalize to lowercase. Parameters and quantified
-variables use bare names, resolved by lexical scope. Other terms name objects.
+the end of the line. The entire `.fol` source, including comments, is ASCII;
+non-ASCII characters are input errors with a source location. ASCII identifiers:
+initial letter, followed by letters, digits, `_`, or `-`; names normalize to
+lowercase. Parameters and quantified variables use bare names, resolved by
+lexical scope. Other terms name objects.
 Every listed section is required and unique, except that `action` may repeat.
 `types` does not include the implicit supertype `object`.
 
@@ -14,29 +16,30 @@ problem travel {
     types place;
     objects { home, office: place; }
     predicates { At(place); Road(place, place); }
-    init: At(home) ∧ Road(home, office);
+    init: At(home) and Road(home, office);
     goal: At(office);
 
     action Move(from: place, to: place) {
-        pre: At(from) ∧ Road(from, to) ∧ from ≠ to;
-        effect: ¬At(from) ∧ At(to);
+        pre: At(from) and Road(from, to) and from != to;
+        effect: not At(from) and At(to);
     }
 }
 ```
 
-| Meaning | Mathematical form | ASCII form |
+| Meaning | DSL form | Also accepted (ASCII) |
 | --- | --- | --- |
-| Atom | `On(b, table)` | same |
-| Negation | `¬F` | `!F` |
-| Conjunction | `F ∧ G` | `F & G` or `F && G` |
-| Disjunction | `F ∨ G` | `F \| G` or `F \|\| G` |
-| Implication | `F → G` | `F -> G` |
-| Equality / inequality | `x = y`, `x ≠ y` | `x = y`, `x != y` |
-| Universal | `∀ x: block . F` | `forall x: block . F` |
-| Existential | `∃ x: block . F` | `exists x: block . F` |
+| Atom | `On(b, table)` | -- |
+| Negation | `not F` | `!F` |
+| Conjunction | `F and G` | `F & G` or `F && G` |
+| Disjunction | `F or G` | `F \| G` or `F \|\| G` |
+| Implication | `F implies G` | `F -> G` |
+| Equality / inequality | `x = y`, `x != y` | -- |
+| Universal | `forall x: block . F` | -- |
+| Existential | `exists x: block . F` | -- |
 
 Operator precedence, weakest first: implication (right associative),
-disjunction, conjunction, negation/atoms. Parentheses group formulas, and
+disjunction, conjunction, negation/atoms. Keywords are case-insensitive and
+reserved as identifiers. Parentheses group formulas, and
 predicate calls use familiar comma-separated arguments. Quantifier bodies
 extend to the right delimiter: use `(forall x: block . F)` to limit scope
 inside a larger formula. Multiple variables: `forall x: block, y: block . F`.
@@ -68,6 +71,8 @@ The old S-expression custom DSL is replaced, not retained as a second mode.
 
 Two standard files: `(define (domain name) ...)` and
 `(define (problem name) (:domain name) ...)`.
+Both files use ASCII throughout, including comments; non-ASCII input is an
+error with a source location.
 Domain sections: optional `:requirements`, optional flat `:types`, optional
 `:constants`, required `:predicates`, repeatable `:action`. Problem sections:
 `:domain`, optional `:objects`, `:init`, `:goal`.

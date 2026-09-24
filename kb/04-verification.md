@@ -3,6 +3,8 @@
 ## Acceptance criteria
 
 - DSL and PDDL parse into the same Task, with localized errors where possible.
+- DSL accepts ASCII word connectives and quantifiers, preserves supported ASCII
+  symbolic spellings, and both DSL and PDDL reject non-ASCII input in comments.
 - FOL: CWA, UNA, not/and/or/imply, quantifiers, empty types, lexical scope.
 - Validation: duplicate declarations, unknown types/predicates/objects,
   arity, free variables, and ill-typed effects and initialization.

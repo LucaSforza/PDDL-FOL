@@ -7,7 +7,7 @@ problem impossible {
   goal: At(goal);
 
   action Move(from: place, to: place) {
-    pre: At(from) & Road(from, to);
-    effect: !At(from) & At(to);
+    pre: At(from) and Road(from, to);
+    effect: not At(from) and At(to);
   }
 }

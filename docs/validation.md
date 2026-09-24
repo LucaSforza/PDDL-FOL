@@ -11,7 +11,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 ```
 
-31 tests pass: 10 unit tests, 13 semantic integration tests, 4 robustness tests,
+33 tests pass: 10 unit tests, 15 semantic integration tests, 4 robustness tests,
 3 CLI test groups (running every supplied model), and 1 executable rustdoc.
 CLI argument failures, unknown files, and both search limits are tested too.
 Documentation builds with warnings treated as errors. Generated guide:

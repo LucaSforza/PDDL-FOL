@@ -4,15 +4,15 @@ problem blocks-quantified {
   types block, surface;
   objects { a, b, c: block; table: surface; }
   predicates { On(block, object); }
-  init: On(b, table) ∧ On(a, table) ∧ On(c, a);
-  goal: On(a, b) ∧ On(b, c) ∧ On(c, table);
+  init: On(b, table) and On(a, table) and On(c, a);
+  goal: On(a, b) and On(b, c) and On(c, table);
 
   action Move(b: block, from: object, to: object) {
     pre: On(b, from)
-      ∧ b ≠ to
-      ∧ from ≠ to
-      ∧ (∀ z: block . ¬On(z, b))
-      ∧ (to ≠ table → (∀ z: block . ¬On(z, to)));
-    effect: ¬On(b, from) ∧ On(b, to);
+      and b != to
+      and from != to
+      and (forall z: block . not On(z, b))
+      and (to != table implies (forall z: block . not On(z, to)));
+    effect: not On(b, from) and On(b, to);
   }
 }

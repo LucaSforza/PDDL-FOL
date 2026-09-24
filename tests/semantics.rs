@@ -8,11 +8,11 @@ problem travel {
   types place;
   objects { home, office, park: place; }
   predicates { At(place); Road(place, place); }
-  init: At(home) & Road(home,park) & Road(park,office) & Road(home,office);
+  init: At(home) and Road(home,park) and Road(park,office) and Road(home,office);
   goal: At(office);
   action Move(from:place,to:place) {
-    pre: At(from) & Road(from,to) & from != to;
-    effect: !At(from) & At(to);
+    pre: At(from) and Road(from,to) and from != to;
+    effect: not At(from) and At(to);
   }
 }
 "#;
@@ -103,17 +103,43 @@ fn quantified_logic_uses_finite_models_and_lexical_scope() {
 }
 
 #[test]
-fn ascii_and_unicode_operator_spellings_parse_to_the_same_model() {
-    let ascii = parse_dsl(&logic_task(
+fn ascii_word_and_symbol_operator_spellings_parse_to_the_same_model() {
+    let words = parse_dsl(&logic_task(
+        "FORALL x:item . (not Marked(x) or (x != a and Marked(a)))",
+    ))
+    .unwrap();
+    let symbols = parse_dsl(&logic_task(
         "forall x:item . (!Marked(x) | (x != a & Marked(a)))",
     ))
     .unwrap();
-    let unicode = parse_dsl(&logic_task("∀ x:item . (¬Marked(x) ∨ (x ≠ a ∧ Marked(a)))")).unwrap();
-    assert_eq!(ascii, unicode);
+    assert_eq!(words, symbols);
 
-    let ascii = parse_dsl(&logic_task("Marked(a) && false || true -> false -> true")).unwrap();
-    let unicode = parse_dsl(&logic_task("Marked(a) ∧ false ∨ true → false → true")).unwrap();
-    assert_eq!(ascii, unicode);
+    let words = parse_dsl(&logic_task(
+        "Marked(a) and false or true implies false implies true",
+    ))
+    .unwrap();
+    let symbols = parse_dsl(&logic_task("Marked(a) && false || true -> false -> true")).unwrap();
+    assert_eq!(words, symbols);
+}
+
+#[test]
+fn dsl_rejects_non_ascii_with_source_location_even_in_comments() {
+    assert_eq!(
+        parse_dsl("∀").unwrap_err().to_string(),
+        "1:1: non-ASCII character '∀'"
+    );
+    assert_eq!(
+        parse_dsl("// ok\n// ∧").unwrap_err().to_string(),
+        "2:4: non-ASCII character '∧'"
+    );
+}
+
+#[test]
+fn pddl_rejects_non_ascii_in_comments() {
+    assert_eq!(
+        parse_pddl("; ∧", PROBLEM).unwrap_err().to_string(),
+        "1:3: non-ASCII character '∧'"
+    );
 }
 
 #[test]
@@ -249,8 +275,8 @@ fn malformed_models_are_rejected_before_search() {
         TRAVEL.replace("goal: At(office);", "goal: At(home,office);"),
         TRAVEL.replace("goal: At(office);", "goal: At(free);"),
         TRAVEL.replace(
-            "effect: !At(from) & At(to);",
-            "effect: !At(from) & At(free);",
+            "effect: not At(from) and At(to);",
+            "effect: not At(from) and At(free);",
         ),
         TRAVEL.replace("init: At(home)", "init: At(free)"),
         TRAVEL.replace("from:place,to:place", "from:place,from:place"),
@@ -273,14 +299,20 @@ fn parser_rejects_unsupported_or_ambiguous_input() {
         format!("{TRAVEL} trailing"),
         TRAVEL.replace("goal: At(office);", "goal: At(office); goal: At(home);"),
         TRAVEL.replace("types place;", "types place; mystery;"),
-        TRAVEL.replace("effect: !At(from) & At(to);", "effect: At(from) | At(to);"),
         TRAVEL.replace(
-            "pre: At(from) & Road(from,to) & from != to;",
+            "effect: not At(from) and At(to);",
+            "effect: At(from) | At(to);",
+        ),
+        TRAVEL.replace(
+            "pre: At(from) and Road(from,to) and from != to;",
             "pre: At(from); pre: Road(from,to);",
         ),
-        TRAVEL.replace("pre: At(from) & Road(from,to) & from != to;", ""),
-        TRAVEL.replace("effect: !At(from) & At(to);", ""),
-        TRAVEL.replace("effect: !At(from) & At(to);", "effect: At(from) | At(to);"),
+        TRAVEL.replace("pre: At(from) and Road(from,to) and from != to;", ""),
+        TRAVEL.replace("effect: not At(from) and At(to);", ""),
+        TRAVEL.replace(
+            "effect: not At(from) and At(to);",
+            "effect: At(from) | At(to);",
+        ),
     ] {
         assert!(parse_dsl(&source).is_err(), "accepted: {source}");
     }

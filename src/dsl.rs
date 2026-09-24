@@ -1,4 +1,4 @@
-//! Parser for the compact infix FOLPlan language.
+//! Parser for the ASCII infix FOLPlan language.
 
 use crate::model::{
     Action, Atom, Binding, Error, Formula, GroundAtom, Predicate, State, Task, Term,
@@ -571,6 +571,11 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
     let mut chars = source.chars().peekable();
     let (mut line, mut column) = (1usize, 1usize);
     while let Some(ch) = chars.next() {
+        if !ch.is_ascii() {
+            return Err(Error::new(format!(
+                "{line}:{column}: non-ASCII character '{ch}'"
+            )));
+        }
         if ch == '\n' {
             line += 1;
             column = 1;
@@ -584,6 +589,11 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
             chars.next();
             column += 2;
             for c in chars.by_ref() {
+                if !c.is_ascii() {
+                    return Err(Error::new(format!(
+                        "{line}:{column}: non-ASCII character '{c}'"
+                    )));
+                }
                 if c == '\n' {
                     line += 1;
                     column = 1;
@@ -607,8 +617,15 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
                 word.push(next.to_ascii_lowercase());
                 column += 1;
             }
+            let kind = match word.as_str() {
+                "and" => TokenKind::Symbol(Symbol::And),
+                "or" => TokenKind::Symbol(Symbol::Or),
+                "not" => TokenKind::Symbol(Symbol::Not),
+                "implies" => TokenKind::Symbol(Symbol::Implies),
+                _ => TokenKind::Name(word),
+            };
             result.push(Token {
-                kind: TokenKind::Name(word),
+                kind,
                 line,
                 column: start.1,
             });
@@ -631,7 +648,6 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
                 }
                 Some(TokenKind::Symbol(Symbol::And))
             }
-            '∧' => Some(TokenKind::Symbol(Symbol::And)),
             '|' => {
                 if chars.peek() == Some(&'|') {
                     chars.next();
@@ -639,7 +655,6 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
                 }
                 Some(TokenKind::Symbol(Symbol::Or))
             }
-            '∨' => Some(TokenKind::Symbol(Symbol::Or)),
             '!' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
@@ -649,17 +664,12 @@ fn lex(source: &str) -> Result<Vec<Token>, Error> {
                     Some(TokenKind::Symbol(Symbol::Not))
                 }
             }
-            '¬' => Some(TokenKind::Symbol(Symbol::Not)),
             '=' => Some(TokenKind::Symbol(Symbol::Equal)),
-            '≠' => Some(TokenKind::Symbol(Symbol::NotEqual)),
             '-' if chars.peek() == Some(&'>') => {
                 chars.next();
                 column += 1;
                 Some(TokenKind::Symbol(Symbol::Implies))
             }
-            '→' => Some(TokenKind::Symbol(Symbol::Implies)),
-            '∀' => Some(TokenKind::Name("forall".into())),
-            '∃' => Some(TokenKind::Name("exists".into())),
             _ => None,
         };
         if let Some(kind) = kind {
@@ -725,13 +735,13 @@ mod tests {
             types block, surface;
             objects { a, b, c: block; table: surface; }
             predicates { On(block, object); Ready(); }
-            init: On(b, table) & On(a, table) & On(c, a);
-            goal: On(a, b) & On(b, c) & On(c, table);
+            init: On(b, table) and On(a, table) and On(c, a);
+            goal: On(a, b) and On(b, c) and On(c, table);
             action Move(b: block, from: object, to: object) {
-                pre: On(b, from) & b != to & from != to &
-                    (forall z: block . !On(z, b)) &
-                    (to != table -> (forall z: block . !On(z, to)));
-                effect: !On(b, from) & On(b, to);
+                pre: On(b, from) and b != to and from != to and
+                    (forall z: block . not On(z, b)) and
+                    (to != table implies (forall z: block . not On(z, to)));
+                effect: not On(b, from) and On(b, to);
             }
         }
     "#;
@@ -766,13 +776,13 @@ mod tests {
     }
 
     #[test]
-    fn precedence_unicode_operators_and_arrow_without_spaces_work() {
+    fn word_operators_and_arrow_without_spaces_work() {
         let source = r#"problem logic {
             types;
             objects {}
             predicates { P(); Q(); }
             init: true;
-            goal: ∀x: object . (P() ∧ !Q()) → (P() ∨ Q());
+            goal: forall x: object . (P() and not Q()) implies (P() or Q());
         }"#;
         let task = parse_dsl(source).unwrap();
         assert!(matches!(task.goal, Formula::Forall(_, _)));
@@ -797,12 +807,12 @@ mod tests {
             .is_err()
         );
         let source = SAMPLE.replace(
-            "effect: !On(b, from) & On(b, to);",
+            "effect: not On(b, from) and On(b, to);",
             "effect: On(b, from) | On(b, to);",
         );
         assert!(parse_dsl(&source).is_err());
         let source = SAMPLE.replace(
-            "init: On(b, table) & On(a, table) & On(c, a);",
+            "init: On(b, table) and On(a, table) and On(c, a);",
             "init: !On(b, table);",
         );
         assert!(parse_dsl(&source).is_err());

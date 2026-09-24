@@ -3,12 +3,12 @@ problem inspection {
   types item, inspector;
   objects { sample_a, sample_b: item; robot: inspector; }
   predicates { Pending(item); Inspected(item); CanInspect(inspector, item); }
-  init: Pending(sample_a) ∧ Pending(sample_b)
-        ∧ CanInspect(robot, sample_a) ∧ CanInspect(robot, sample_b);
-  goal: ∀ x: item . Inspected(x);
+  init: Pending(sample_a) and Pending(sample_b)
+        and CanInspect(robot, sample_a) and CanInspect(robot, sample_b);
+  goal: forall x: item . Inspected(x);
 
   action Inspect(x: item) {
-    pre: Pending(x) ∧ (∃ worker: inspector . CanInspect(worker, x));
-    effect: ¬Pending(x) ∧ Inspected(x);
+    pre: Pending(x) and (exists worker: inspector . CanInspect(worker, x));
+    effect: not Pending(x) and Inspected(x);
   }
 }
