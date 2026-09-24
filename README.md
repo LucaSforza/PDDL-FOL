@@ -5,6 +5,21 @@ finite, typed domains. Write tasks in the FOLPlan DSL or import the documented
 subset of PDDL. The planner grounds actions and uses breadth-first search (BFS)
 to find a shortest plan by number of actions.
 
+## Build and install
+
+With Rust 1.85+ and `just` installed:
+
+```sh
+just installation   # install CLI, .fol LSP, and Neovim configuration
+just build          # debug build of both crates
+just build-release  # release build of both crates
+just test
+just check          # formatting and Clippy
+```
+
+See [justfile](justfile) for all recipes and [LSP guide](lsp/README.md) for
+Neovim details.
+
 ## Example
 
 ```fol
