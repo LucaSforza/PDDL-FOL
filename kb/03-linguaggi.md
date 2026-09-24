@@ -1,20 +1,21 @@
-# Linguaggi
+# Languages
 
-## DSL FOLPlan (.fol)
+## FOLPlan DSL (.fol)
 
-S-expression leggibili, commenti `;` fino a fine riga. Identificatori ASCII:
-lettera iniziale, poi lettere, cifre, `_`, `-`; variabili con prefisso `?`.
-Parole riservate per operatori: `and`, `or`, `not`, `imply`, `exists`, `forall`, `=`.
-Tutte le sezioni indicate sono obbligatorie e uniche, eccetto `action` ripetibile.
-`types` non include il supertipo implicito `object`.
+Readable S-expressions, with `;` comments through the end of the line. ASCII
+identifiers: initial letter, followed by letters, digits, `_`, or `-`; variables
+have the `?` prefix. Reserved operator words: `and`, `or`, `not`, `imply`,
+`exists`, `forall`, `=`. Every listed section is required and unique, except
+that `action` may repeat. `types` does not include the implicit supertype
+`object`.
 
 ```lisp
-(planning viaggio
+(planning travel
   (types place)
-  (objects (casa place) (ufficio place))
+  (objects (home place) (office place))
   (predicates (at place) (road place place))
-  (init (at casa) (road casa ufficio))
-  (goal (at ufficio))
+  (init (at home) (road home office))
+  (goal (at office))
   (action move
     (params (?from place) (?to place))
     (pre (and (at ?from) (road ?from ?to) (not (= ?from ?to))))
@@ -22,30 +23,30 @@ Tutte le sezioni indicate sono obbligatorie e uniche, eccetto `action` ripetibil
     (del (at ?from))))
 ```
 
-Atomo: `(p term...)`. Uguaglianza: `(= t1 t2)`. Formule:
+Atom: `(p term...)`. Equality: `(= t1 t2)`. Formulas:
 `(and f...)`, `(or f...)`, `(not f)`, `(imply f g)`,
 `(forall ((?x type) ...) f)`, `(exists ((?x type) ...) f)`.
-`(and)` è vero, `(or)` è falso. `init`, `add`, `del` sono liste di atomi,
-non formule generiche. I parametri hanno binding `(nome tipo)`.
+`(and)` is true; `(or)` is false. `init`, `add`, and `del` are lists of atoms,
+not general formulas. Parameters use bindings `(name type)`.
 
 ## PDDL
 
-Due file standard `(define (domain nome) ...)` e
-`(define (problem nome) (:domain nome) ...)`.
-Sezioni dominio: `:requirements` opzionale, `:types` opzionale piatto,
-`:constants` opzionale, `:predicates` obbligatoria, `:action` ripetibile.
-Sezioni problema: `:domain`, `:objects` opzionale, `:init`, `:goal`.
-Liste tipate PDDL `a b - type`, senza annotazione = `object`.
-Tipi piatti possono dichiarare `- object`; altri genitori rifiutati.
-Formule FOL identiche, binding quantificati in sintassi PDDL `(?x - type)`.
-Effetti: atomo, negazione di atomo, congiunzione ricorsiva di questi.
+Two standard files: `(define (domain name) ...)` and
+`(define (problem name) (:domain name) ...)`.
+Domain sections: optional `:requirements`, optional flat `:types`, optional
+`:constants`, required `:predicates`, repeatable `:action`. Problem sections:
+`:domain`, optional `:objects`, `:init`, `:goal`.
+PDDL typed lists use `a b - type`; unannotated names have type `object`.
+Flat types may declare `- object`; other parent types are rejected. FOL formulas
+are the same, with quantified bindings in PDDL syntax `(?x - type)`. Effects:
+an atom, a negated atom, or a recursive conjunction of these.
 
-Requirements accettati: `:strips`, `:typing`, `:negative-preconditions`,
+Accepted requirements: `:strips`, `:typing`, `:negative-preconditions`,
 `:disjunctive-preconditions`, `:equality`, `:existential-preconditions`,
 `:universal-preconditions`, `:quantified-preconditions`.
-Non è richiesto dichiarare ogni feature usata; dichiarazioni non supportate
-(anche `:adl`, perché include effetti condizionali) sono errori espliciti.
-Niente negazioni in `:init`: usare CWA. Le sezioni sconosciute sono errori.
+It is not necessary to declare every feature used; declarations of unsupported
+features (including `:adl`, because it includes conditional effects) produce
+explicit errors. No negation in `:init`: use CWA. Unknown sections are errors.
 
 ## CLI
 
@@ -57,6 +58,7 @@ folplan check-pddl domain.pddl problem.pddl
 folplan --help
 ```
 
-Output umano: piano numerato, termine situazione, stati esplorati.
-Exit code: 0 piano/validazione, 1 errore I/O/sintassi/semantica/argomenti,
-2 impossibile, 3 limite di ricerca/grounding. CLI non panica su input errato.
+Human-readable output: numbered plan, situation term, and states explored.
+Exit codes: 0 for a plan or successful validation, 1 for I/O, syntax, semantic,
+or argument errors, 2 for impossible, and 3 for a search or grounding limit.
+Limits must be positive integers. The CLI must not panic on invalid input.

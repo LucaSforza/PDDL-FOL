@@ -1,6 +1,6 @@
-# Architettura e contratti
+# Architecture and contracts
 
-Un crate Rust `pddl_fol`, binario `folplan`, nessuna dipendenza esterna.
+A Rust crate `pddl_fol`, with a `folplan` binary and no external dependencies.
 
 ```mermaid
 classDiagram
@@ -45,42 +45,43 @@ classDiagram
 ```mermaid
 flowchart LR
     F[DSL .fol] --> P[parser]
-    D[Dominio + problema PDDL] --> P
-    P --> T[Task condiviso]
-    T --> V[Validazione semantica]
-    V --> G[Grounding tipato]
+    D[Domain + PDDL problem] --> P
+    P --> T[Shared Task]
+    T --> V[Semantic validation]
+    V --> G[Typed grounding]
     G --> B[BFS]
-    B --> E[Valutazione FOL + transizioni]
+    B --> E[FOL evaluation + transitions]
     E --> B
-    B --> R[Piano / impossibile / limite]
-    R --> C[CLI e rustdoc]
+    B --> R[Plan / impossible / limit]
+    R --> C[CLI and rustdoc]
 ```
 
 ```mermaid
 sequenceDiagram
-    actor Utente
-    Utente->>CLI: solve modello.fol
+    actor User
+    User->>CLI: solve model.fol
     CLI->>Parser: parse_dsl(source)
-    Parser-->>CLI: Task oppure Error
+    Parser-->>CLI: Task or Error
     CLI->>Solver: solve(task, limits)
     Solver->>Validator: validate(task)
     Solver->>Evaluator: goal(initial)
-    loop Stati BFS finché goal o esaurimento
+    loop BFS states until goal or exhaustion
         Solver->>Evaluator: precondition(state, binding)
         Evaluator-->>Solver: bool
-        Solver->>Solver: delete, add, deduplica
+        Solver->>Solver: delete, add, deduplicate
     end
     Solver-->>CLI: SearchOutcome
-    CLI-->>Utente: piano + situazione + statistiche
+    CLI-->>User: plan + situation + statistics
 ```
 
-## Proprietà dei moduli
+## Module responsibilities
 
-`model.rs`: strutture dati e `Error`; `logic.rs`: validazione/evaluazione;
-`planner.rs`: grounding, BFS, riproduzione piani; `parser.rs`: lexer S-expression
-con coordinate, DSL e PDDL; `main.rs`: I/O e argomenti; `lib.rs`: API/rustdoc.
+`model.rs`: data structures and `Error`; `logic.rs`: validation/evaluation;
+`planner.rs`: grounding, BFS, plan replay; `parser.rs`: coordinate-aware
+S-expression lexer, DSL, and PDDL; `main.rs`: I/O and arguments; `lib.rs`: API
+and rustdoc.
 
-API fissata prima delle deleghe (campi pubblici per costruzione programmatica):
+API fixed before delegation (public fields for programmatic construction):
 
 ```text
 Binding { name: String, ty: String }
@@ -88,17 +89,18 @@ Term::{Variable(String), Constant(String)}
 Atom { predicate: String, terms: Vec<Term> }
 GroundAtom { predicate: String, arguments: Vec<String> }
 State = BTreeSet<GroundAtom>
-Predicate { name: String, parameters: Vec<String> } // tipi, non nomi
+Predicate { name: String, parameters: Vec<String> } // types, not names
 Formula::{Atom(Atom), Equal(Term,Term), Not(Box<Formula>), And(Vec<Formula>),
  Or(Vec<Formula>), Implies(Box<Formula>,Box<Formula>),
  Exists(Vec<Binding>,Box<Formula>), Forall(Vec<Binding>,Box<Formula>)}
-Action/Task: campi nel diagramma, delete (non del)
+Action/Task: fields from diagram, delete (not del)
 Error { message: String }, Error::new(impl Into<String>), Display, std::error::Error
+ErrorKind::{InvalidInput, GroundingLimit}; Error::kind() -> ErrorKind
 parse_dsl(&str) -> Result<Task, Error>
 parse_pddl(domain: &str, problem: &str) -> Result<Task, Error>
 validate(&Task) -> Result<(), Error>
-evaluate(&Task, &State, &Formula) -> Result<bool, Error> // formula chiusa
-SearchLimits { max_states: usize, max_ground_actions: usize }, Default: 100000 entrambi
+evaluate(&Task, &State, &Formula) -> Result<bool, Error> // closed formula
+SearchLimits { max_states: usize, max_ground_actions: usize }, Default: 100000 each
 GroundAction { name: String, arguments: Vec<String> }, Display: (name args...)
 Plan { steps: Vec<GroundAction>, final_state: State, explored: usize }
 Plan::situation(&self) -> String
@@ -107,6 +109,8 @@ solve(&Task, SearchLimits) -> Result<SearchOutcome, Error>
 replay(&Task, &[GroundAction]) -> Result<State, Error>
 ```
 
-`solve` e `replay` validano sempre Task. `evaluate` controlla formula, stato e
-modello; il motore usa internamente una valutazione già validata. Nomi DSL e PDDL
-ASCII case-insensitive, normalizzati in minuscolo. Nessuno `unsafe`.
+`solve` and `replay` always validate the Task. `evaluate` checks the formula,
+state, and model; the engine internally uses an already-validated evaluation.
+Grounding-limit errors have kind `ErrorKind::GroundingLimit`; all other model
+and input errors have kind `ErrorKind::InvalidInput`. DSL and PDDL names are
+ASCII case-insensitive and normalized to lowercase. No `unsafe`.

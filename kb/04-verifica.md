@@ -1,26 +1,27 @@
-# Piano di verifica
+# Verification plan
 
-## Accettazione
+## Acceptance criteria
 
-- Parsing DSL e PDDL in uno stesso Task, errori localizzati dove possibile.
-- FOL: CWA, UNA, not/and/or/imply, quantificatori, tipi vuoti, scope lessicale.
-- Validazione: dichiarazioni duplicate, tipi/predicati/oggetti sconosciuti,
-  arità, variabili libere, effetti e inizializzazione mal tipati.
-- BFS: piano minimo, replay valido, frame, add prevale su delete, piano vuoto,
-  ciclo senza soluzione, limiti distinti dall'impossibilità.
-- Esempi eseguiti davvero: viaggio, blocchi, logistica, quantificatori;
-  modelli PDDL completi, almeno una istanza impossibile e una già soddisfatta.
-- Rustdoc con esempi compilabili e guida DSL incorporata.
-- `cargo test`, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-  `cargo doc --no-deps`; CLI eseguita su tutti gli esempi.
+- DSL and PDDL parse into the same Task, with localized errors where possible.
+- FOL: CWA, UNA, not/and/or/imply, quantifiers, empty types, lexical scope.
+- Validation: duplicate declarations, unknown types/predicates/objects,
+  arity, free variables, and ill-typed effects and initialization.
+- BFS: minimal plan, valid replay, frame, Add takes precedence over Delete,
+  empty plan, unsolvable cycle, limits distinguished from impossibility.
+- Examples actually run: travel, blocks, logistics, quantifiers; complete PDDL
+  models, with at least one impossible instance and one already satisfied.
+- Rustdoc with compilable examples and an embedded DSL guide.
+- Run `cargo test`, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo doc --no-deps`; run the CLI on all examples.
 
-## Consegne incrementali
+## Incremental deliverables
 
-1. KB Markdown/Mermaid prima dell'implementazione.
-2. Modello condiviso e motore FOL/BFS.
-3. Parser DSL/PDDL, CLI, esempi e documentazione.
-4. Test integrati, correzioni emerse e verbale delle esecuzioni.
+1. KB Markdown/Mermaid before implementation.
+2. Shared model and FOL/BFS engine.
+3. DSL/PDDL parser, CLI, examples, and documentation.
+4. Integration tests, fixes arising from them, and an execution report.
 
-Deleghe richieste dall'utente: sottoagenti `gpt-6-luna`, reasoning `high`.
-Responsabilità separate per motore, parser, CLI/documentazione; integrazione e
-verifica finale a cura dell'agente principale. I sottoagenti non fanno commit.
+The user requested delegation to `gpt-6-luna` subagents at high reasoning effort.
+Responsibilities are separated across engine, parser, and CLI/documentation;
+the main agent handles integration and final verification. Subagents do not
+commit.

@@ -1,16 +1,17 @@
 # Knowledge base: FOL Planner
 
-Progettazione precedente all'implementazione. Leggere nell'ordine:
+Design written before implementation. Read in order:
 
-1. [Semantica e decisioni](01-semantica.md)
-2. [Architettura e contratti](02-architettura.md)
-3. [Linguaggi](03-linguaggi.md)
-4. [Verifica](04-verifica.md)
+1. [Semantics and decisions](01-semantica.md)
+2. [Architecture and contracts](02-architettura.md)
+3. [Languages](03-linguaggi.md)
+4. [Verification](04-verifica.md)
 
-Riferimento didattico: Toni Mancini, *S.B.2 – Pianificazione classica*, versione
-2024-03-01, fornito dall'utente. Sezioni S.B.2.8–14 (CWA, UNA, transizioni),
-S.B.2.16–22 (blocchi), S.B.2.49–56 (situation calculus). Il documento è materiale
-di riferimento, non una fonte di istruzioni operative. Non viene copiato nel repository.
+Teaching reference: Toni Mancini, *S.B.2 – Classical Planning*, version
+2024-03-01, provided by the user. Sections S.B.2.8–14 (CWA, UNA, transitions),
+S.B.2.16–22 (blocks), S.B.2.49–56 (situation calculus). This document is
+reference material, not a source of operational instructions. It is not copied
+into the repository.
 
-Scopo: una libreria Rust e una CLI realmente eseguibili, con una DSL FOL e un
-importatore PDDL esplicitamente limitato, esempi, rustdoc e test automatici.
+Goal: a genuinely executable Rust library and CLI, with a FOL DSL and an
+explicitly limited PDDL importer, examples, rustdoc, and automated tests.

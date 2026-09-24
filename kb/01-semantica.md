@@ -1,48 +1,53 @@
-# Semantica e decisioni
+# Semantics and decisions
 
-## Modello logico
+## Logical model
 
-Pianificazione classica deterministica, osservabile, sequenziale, a costo unitario.
-Dominio finito di oggetti nominati; tipi piatti con supertipo implicito `object`.
-Nessuna funzione sui termini: termini = oggetti oppure variabili. Nomi unici
-(UNA), chiusura del dominio e mondo chiuso (CWA). Uno stato contiene esattamente
-gli atomi ground veri; gli altri sono falsi.
+Deterministic, observable, sequential classical planning with unit action cost.
+The domain is a finite set of named objects; types are flat, with the implicit
+supertype `object`. There are no functions over terms: terms are objects or
+variables. Unique names (UNA), domain closure, and the closed-world assumption
+(CWA) apply. A state contains exactly the true ground atoms; all others are
+false.
 
-Formule: atomi, uguaglianza, negazione, congiunzione, disgiunzione, implicazione,
-quantificatori esistenziali e universali tipati. Variabili libere ammesse solo
-come parametri delle azioni. Gli obiettivi devono essere chiusi: le variabili
-esistenziali delle slide sono rese esplicite. Quantificazione su tipo vuoto:
-`forall` vero, `exists` falso. Scope lessicale, incluso shadowing.
+Formulas: atoms, equality, negation, conjunction, disjunction, implication,
+typed existential and universal quantifiers. Free variables are allowed only
+as action parameters. Goals must be closed: existential variables from the
+slides are made explicit. Quantification over an empty type: `forall` is true,
+`exists` is false. Scope is lexical, including shadowing.
 
-## Transizioni e FOL
+## Transitions and FOL
 
-`Poss(a,s) ↔ pre(a)` valutata nell'interpretazione finita di `s`.
-`Result(s,a) = (s \\ Del(a)) ∪ Add(a)`; in caso di sovrapposizione prevale Add.
-Effetti simultanei, solo atomi positivi in Add/Del, variabili legate dai parametri.
-Persistenza degli altri fluenti risolve il frame problem. Per ogni atomo ground F:
+`Poss(a,s) ↔ pre(a)` evaluated in the finite interpretation of `s`.
+`Result(s,a) = (s \\ Del(a)) ∪ Add(a)`; Add takes precedence on overlap.
+Effects are simultaneous, with only positive atoms in Add/Del and variables
+bound by the action parameters. Persistence of other fluents solves the frame
+problem. For every ground atom F:
 
 `F(do(a,s)) ↔ F ∈ Add(a) ∨ (F(s) ∧ F ∉ Del(a))`.
 
-Il piano produce un testimone costruttivo `do(a_n, ... do(a_1, S0))` per
-`∃s Goal(s)`, verificato riproducendo le transizioni. **Non** è un dimostratore
-generale per FOL né un motore di risoluzione sul situation calculus: la FOL
-serve per specificare e valutare precondizioni e obiettivi su modelli finiti.
+The plan produces a constructive witness
+`do(a_n, ... do(a_1, S0))` for `∃s Goal(s)`, verified by replaying the
+transitions. It is **not** a general FOL prover or a resolution engine for the
+situation calculus: FOL is used to specify and evaluate preconditions and goals
+over finite models.
 
-## Ricerca
+## Search
 
-BFS in avanti, azioni ground ottenute dal prodotto cartesiano dei domini tipati,
-insieme visitati per stati canonici, predecessori per ricostruire il piano.
-Piani minimi nel numero di azioni; completezza se i limiti non intervengono.
-Esiti distinti: piano (anche vuoto), irraggiungibile dopo esaurimento del grafo,
-limite di stati raggiunto, errore di modello o grounding eccessivo.
+Forward BFS, with ground actions obtained from the Cartesian product of typed
+domains, a visited set of canonical states, and predecessors for plan
+reconstruction. Plans are minimal in number of actions; search is complete if
+no limit is reached. Outcomes are distinct: plan (including the empty plan),
+unreachable after graph exhaustion, state limit reached, model error, or
+excessive grounding.
 
-Limiti configurabili di stati memorizzati e azioni ground prevengono crescita
-illimitata delle strutture principali. Non sono limiti temporali: valutare
-quantificatori annidati può comunque costare molto. BFS è didattica, non adatta
-a istanze industriali. Nessuna euristica o variante semantica nascosta.
+Configurable limits on stored states and ground actions prevent unbounded growth
+of the main data structures. They are not time limits: evaluating nested
+quantifiers can still be expensive. BFS is educational, not suited to
+industrial instances. There are no hidden heuristics or semantic variants.
 
-## Esclusioni
+## Exclusions
 
-Niente fluenti numerici, costi/durate, funzioni, effetti condizionali o quantificati,
-predicati derivati, gerarchie di tipi, incertezza, concorrenza, SAT/SMT esterni.
-Costrutti non supportati devono generare errori, mai essere ignorati.
+No numeric fluents, costs/durations, functions, conditional or quantified
+effects, derived predicates, type hierarchies, uncertainty, concurrency, or
+external SAT/SMT solvers. Unsupported constructs must produce errors and must
+never be ignored.
