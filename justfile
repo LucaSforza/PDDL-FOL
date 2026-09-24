@@ -32,8 +32,9 @@ check:
     cargo clippy --locked --all-targets -- -D warnings
     cargo clippy --locked --all-targets --manifest-path lsp/Cargo.toml -- -D warnings
 
-# Install CLI, language server, and Neovim configuration.
+# Install CLI, language server, and Neovim configuration and syntax.
 installation:
     cargo install --force --locked --path . --root ~/.local
     cargo install --force --locked --path lsp --root ~/.local
     install -Dm644 lsp/nvim/folplan.lua ~/.config/nvim/lua/plugins/folplan.lua
+    install -Dm644 lsp/nvim/syntax/folplan.vim ~/.config/nvim/syntax/folplan.vim
