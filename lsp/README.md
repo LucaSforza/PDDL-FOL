@@ -8,10 +8,10 @@ single-document language server.
 Install from the repository root:
 
 ```sh
-cargo install --locked --offline --path lsp --root ~/.local
-cp lsp/nvim/folplan.lua ~/.config/nvim/lua/plugins/folplan.lua
+just installation
 ```
 
-Restart Neovim. The plugin uses Neovim's built-in LSP client and sets the
-`folplan` filetype for `.fol`. No Mason package is needed. Re-run `cargo install`
-after changing the parser or validator.
+This installs both CLI and language server in `~/.local/bin` and copies the
+Neovim plugin. Restart Neovim. The plugin uses Neovim's built-in LSP client
+and sets the `folplan` filetype for `.fol`. No Mason package is needed. Re-run
+`just installation` after changing the parser or validator.
