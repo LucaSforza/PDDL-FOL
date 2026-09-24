@@ -129,7 +129,9 @@ fn check_formula_depth(formula: &Formula) -> Result<(), Error> {
     let mut pending = vec![(formula, 0usize)];
     while let Some((formula, depth)) = pending.pop() {
         if depth > MAX_RECURSION {
-            return Err(Error::new("formula exceeds the 256-level nesting/binding limit"));
+            return Err(Error::new(
+                "formula exceeds the 256-level nesting/binding limit",
+            ));
         }
         match formula {
             Formula::Not(body) => pending.push((body, depth + 1)),
@@ -251,12 +253,12 @@ fn check_term(
             (name.as_str(), ty)
         }
     };
-    if let Some(expected) = expected_type {
-        if expected != "object" && actual_type != expected {
-            return Err(Error::new(format!(
-                "term `{name}` has type `{actual_type}`, expected `{expected}`"
-            )));
-        }
+    if let Some(expected) =
+        expected_type.filter(|expected| *expected != "object" && actual_type != *expected)
+    {
+        return Err(Error::new(format!(
+            "term `{name}` has type `{actual_type}`, expected `{expected}`"
+        )));
     }
     Ok(())
 }

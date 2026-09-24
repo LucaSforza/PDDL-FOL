@@ -57,6 +57,10 @@ of the main data structures. They are not time limits: evaluating nested
 quantifiers can still be expensive. BFS is educational, not suited to
 industrial instances. There are no hidden heuristics or semantic variants.
 
+Input nesting is bounded at 256 levels. Semantic validation bounds action
+parameters and combined formula nesting/quantifier bindings at 256, before
+recursive grounding or evaluation. Oversized models produce input errors.
+
 ## Exclusions
 
 No numeric fluents, costs/durations, functions, conditional or quantified

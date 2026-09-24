@@ -1,0 +1,15 @@
+[package]
+name = "pddl_fol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Finite-domain first-order logic and classical PDDL planning"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "folplan"
+path = "src/main.rs"
+
+[dependencies]

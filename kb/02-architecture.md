@@ -101,7 +101,7 @@ parse_pddl(domain: &str, problem: &str) -> Result<Task, Error>
 validate(&Task) -> Result<(), Error>
 evaluate(&Task, &State, &Formula) -> Result<bool, Error> // closed formula
 SearchLimits { max_states: usize, max_ground_actions: usize }, Default: 100000 each
-GroundAction { name: String, arguments: Vec<String> }, Display: (name args...)
+GroundAction { name: String, arguments: Vec<String> }, Display: name(arg1, arg2)
 Plan { steps: Vec<GroundAction>, final_state: State, explored: usize }
 Plan::situation(&self) -> String
 SearchOutcome::{Solved(Plan), Unsolvable { explored: usize }, LimitReached { explored: usize }}
