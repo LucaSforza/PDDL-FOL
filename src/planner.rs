@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::logic::{eval_with_bindings, validate};
 use crate::model::{
-    Action, Atom, Error, GroundAction, GroundAtom, Plan, SearchLimits, SearchOutcome, State, Task,
-    Term,
+    Action, Atom, Error, Formula, GroundAction, GroundAtom, Plan, SearchLimits, SearchOutcome,
+    State, Task, Term,
 };
 
 /// Finds a shortest plan with forward breadth-first search.
@@ -20,6 +20,17 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
         }));
     }
     let grounded = ground_actions(task, limits.max_ground_actions)?;
+    let mut by_required_atom: HashMap<GroundAtom, Vec<usize>> = HashMap::new();
+    let mut unfiltered = Vec::new();
+    for (index, (schema_index, ground)) in grounded.iter().enumerate() {
+        let schema = &task.actions[*schema_index];
+        if let Some(atom) = required_atom(&schema.precondition) {
+            let key = instantiate(atom, &action_environment(schema, ground))?;
+            by_required_atom.entry(key).or_default().push(index);
+        } else {
+            unfiltered.push(index);
+        }
+    }
 
     struct Node {
         state: State,
@@ -33,6 +44,7 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
     let mut seen = BTreeMap::from([(task.initial.clone(), 0usize)]);
     let mut queue = VecDeque::from([0usize]);
     let mut explored = 0;
+    let mut candidates = Vec::new();
 
     while let Some(index) = queue.pop_front() {
         explored += 1;
@@ -52,7 +64,17 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
             }));
         }
 
-        for (schema_index, ground) in &grounded {
+        candidates.clear();
+        candidates.extend_from_slice(&unfiltered);
+        for atom in &state {
+            if let Some(actions) = by_required_atom.get(atom) {
+                candidates.extend_from_slice(actions);
+            }
+        }
+        // Each action has one index key; sorting keeps BFS tie-breaking unchanged.
+        candidates.sort_unstable();
+        for &candidate in &candidates {
+            let (schema_index, ground) = &grounded[candidate];
             let schema = &task.actions[*schema_index];
             let env = action_environment(schema, ground);
             if !eval_with_bindings(task, &state, &schema.precondition, &mut env.clone())? {
@@ -103,6 +125,18 @@ pub fn replay(task: &Task, steps: &[GroundAction]) -> Result<State, Error> {
         state = apply(schema, ground, &state)?;
     }
     Ok(state)
+}
+
+// Only atoms reached through conjunction must hold in every applicable state.
+fn required_atom(formula: &Formula) -> Option<&Atom> {
+    match formula {
+        Formula::Atom(atom) => Some(atom),
+        Formula::And(parts) => parts
+            .iter()
+            .filter_map(required_atom)
+            .max_by_key(|atom| atom.terms.len()),
+        _ => None,
+    }
 }
 
 fn ground_actions(task: &Task, limit: usize) -> Result<Vec<(usize, GroundAction)>, Error> {
@@ -298,6 +332,23 @@ mod tests {
         assert_eq!(plan.steps[0].to_string(), "move(a, c)");
         assert_eq!(replay(&task, &plan.steps).unwrap(), plan.final_state);
         assert_eq!(plan.situation(), "do(move(a, c), S0)");
+    }
+
+    #[test]
+    fn disjunction_does_not_filter_applicable_actions() {
+        let mut task = travel_task();
+        task.actions[0].precondition = Formula::Or(vec![
+            Formula::Atom(Atom {
+                predicate: "at".into(),
+                terms: vec![Term::Constant("b".into())],
+            }),
+            Formula::And(vec![]),
+        ]);
+        let SearchOutcome::Solved(plan) = solve(&task, SearchLimits::default()).unwrap() else {
+            panic!("true disjunct must keep every action applicable");
+        };
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(replay(&task, &plan.steps).unwrap(), plan.final_state);
     }
 
     #[test]

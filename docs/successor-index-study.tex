@@ -1,0 +1,188 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[italian]{babel}
+\usepackage{amsmath,amssymb,booktabs,geometry,hyperref}
+\geometry{margin=1.5cm}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+
+\title{Indicizzazione di precondizioni necessarie\\
+per la generazione di successori PDDL}
+\author{Rapporto tecnico su \texttt{pddl\_fol}}
+\date{24 settembre 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Il planner \texttt{pddl\_fol} usa ricerca in ampiezza e valuta ogni azione
+istanzata in ogni stato. Studiamo un indice che seleziona le azioni tramite
+un atomo positivo necessario della precondizione, lasciando invariata la
+valutazione completa della formula del primo ordine. Sul caso Gripper 1
+dell'IPC 1998 il tempo mediano di processo scende da 107,1 a 13,2 ms
+(8,14$\times$); su due problemi Gripper generati con 7 e 8 palline
+il miglioramento raggiunge 12,13$\times$ e 13,80$\times$. Piani e stati
+esplorati coincidono con la versione iniziale. I risultati riguardano
+una selezione di successori \emph{dopo} il grounding: non dimostrano
+un miglioramento generale della pianificazione FOL.
+\end{abstract}
+
+\section{Motivazione e lavoro correlato}
+Il PDDL descrive schemi d'azione con variabili e formule del primo ordine.
+Molti planner effettuano il grounding prima della ricerca. Corr\^ea et
+al.~\cite{correa2020} interpretano invece la generazione lifted dei
+successori come valutazione di query su uno stato e studiano
+ottimizzazioni di database. Euristiche lifted basate sul rilassamento
+delle cancellazioni e su FF sono state proposte in seguito
+\cite{correa2021,correa2022}. Fast Downward usa una rappresentazione e
+generatori di successori diversi da questo progetto~\cite{helmert2006}.
+
+Questo studio affronta un collo di bottiglia pi\`u stretto: il ciclo che
+scansiona tutte le azioni gi\`a istanziate a ogni espansione. Non introduce
+un solver FOL esterno, ricerca lifted o nuova euristica. L'idea di
+trattare l'applicabilit\`a come query motiva l'indice, ma l'algoritmo
+resta pienamente grounded.
+
+\section{Indice e correttezza}
+Sia $A$ la sequenza delle azioni istanziate e $s$ l'insieme degli atomi
+veri nello stato. Per ogni azione $a$, cerchiamo un atomo positivo
+$r(a)$ che deve essere vero ogni volta che la sua precondizione
+$\varphi_a$ \`e vera. La ricerca attraversa solo nodi atomici e
+congiunzioni: tra i candidati sceglie un atomo di arit\`a massima.
+I sottoalberi con disgiunzioni, negazioni, implicazioni o quantificatori
+non producono vincoli per questo indice. Un'azione senza atomi
+necessari entra nell'insieme $U$ non filtrato.
+
+Prima della ricerca costruiamo $I_p=\{a\in A:r(a)=p\}$.
+Per ogni stato valutiamo soltanto
+\begin{equation}
+ C(s)=U\cup\bigcup_{p\in s} I_p.
+\end{equation}
+Ordiniamo $C(s)$ secondo l'ordine originario di $A$, poi valutiamo
+l'intera precondizione per ogni candidato. Se $a$ \`e applicabile,
+$\varphi_a(s)$ \`e vera; per costruzione $r(a)$ \`e vero in $s$, oppure
+$a\in U$. Quindi $a\in C(s)$: nessuna azione applicabile viene persa.
+L'ordine della ricerca in ampiezza e il criterio di spareggio restano
+invariati. L'indice richiede memoria aggiuntiva proporzionale ad $|A|$;
+il costo del grounding non cambia.
+
+\section{Protocollo sperimentale}
+Confrontiamo il commit iniziale \texttt{1487d5c} con il branch indicizzato,
+entrambi compilati con \texttt{cargo build --release} e Rust 1.92.0.
+Macchina: AMD Ryzen 5 7640U, Linux 7.2.5, 12 CPU logiche. Ogni misura
+usa \texttt{time.perf\_counter} attorno al processo CLI completo,
+compresi avvio, parsing, grounding e ricerca. Le esecuzioni delle due
+versioni sono alternate; riportiamo la mediana di 20 coppie per le
+istanze IPC e 3 coppie per i due problemi generati. Limite di ricerca:
+\texttt{--max-states 100000}. Nessun controllo della frequenza CPU;
+i tempi brevi, soprattutto Blocks, sono sensibili al rumore.
+
+I file di dominio e problema Gripper 1 (IPC 1998) e Blocks 4-0 tipizzato
+(IPC 2000) provengono dal corpus pubblico \texttt{pddl-instances},
+revisione \texttt{cf19edf7}~\cite{pddlinstances}. I problemi \texttt{benchmarks/gripper-7.pddl} e
+\texttt{benchmarks/gripper-8.pddl}, inclusi nel repository, estendono
+lo stesso dominio a 7 e 8 palline; \emph{non} sono istanze ufficiali IPC.
+Per tutte le righe, la versione iniziale e quella indicizzata producono
+output CLI identico, inclusi piano e numero di stati esplorati.
+
+\section{Risultati}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+Problema & Base (s) & Indice (s) & Fattore & Stati & Passi \\
+\midrule
+Blocks 4-0, IPC 2000 & 0.003592 & 0.002644 & 1.36 & 111 & 6 \\
+Gripper 1, IPC 1998 & 0.107071 & 0.013155 & 8.14 & 253 & 11 \\
+Gripper 7, generato & 5.344382 & 0.440760 & 12.13 & 4735 & 21 \\
+Gripper 8, generato & 17.432608 & 1.262869 & 13.80 & 11773 & 23 \\
+\bottomrule
+\end{tabular}
+\caption{Tempo mediano end-to-end sullo stesso host. ``Fattore'' = Base/Indice.}
+\label{tab:ours}
+\end{table}
+
+Il miglioramento cresce nei problemi Gripper pi\`u grandi, dove il
+vecchio ciclo valuta molte istanze di azione inutili per ogni stato.
+Blocks 4-0 \`e troppo piccolo per trarre conclusioni solide dal
+rapporto di 1,36$\times$. Gli stati esplorati restano gli stessi:
+l'indice accelera la generazione di successori, non riduce la ricerca.
+
+\subsection{Confronto con Fast Downward}
+Abbiamo compilato Fast Downward 26.6+ dal commit
+\texttt{9b81c7e422fdf7be9f73b96e9a7a969c483dd5d4} in modalit\`a
+\texttt{release} (GCC/G++ 16.2.1). Misuriamo sia
+\texttt{astar(blind())}, riferimento ottimo senza euristica informativa,
+sia l'alias \texttt{seq-sat-lama-2011}, planner euristico
+satisficing. Il comando \texttt{just install-fast-downward} installa
+questa revisione in \texttt{\~{}/.local/bin}; i problemi sono identici
+a quelli della Tabella~\ref{tab:ours}. I tempi FD sono mediane di 20
+esecuzioni per i casi IPC e 5 per quelli generati, sullo stesso host;
+comprendono driver Python, traduzione e ricerca.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Problema & Nostro indice (s) & FD blind (s) & FD LAMA (s) \\
+\midrule
+Blocks 4-0, IPC 2000 & 0.002644 & 0.1324 & 0.1539 \\
+Gripper 1, IPC 1998 & 0.013155 & 0.1267 & 0.1636 \\
+Gripper 7, generato & 0.440760 & 0.1408 & 0.3196 \\
+Gripper 8, generato & 1.262869 & 0.1402 & 0.6415 \\
+\bottomrule
+\end{tabular}
+\caption{Tempo mediano di processo completo sullo stesso host.
+Fast Downward (FD) usa due configurazioni diverse.}
+\label{tab:fd}
+\end{table}
+
+FD trova piani della stessa lunghezza in tutti i casi; LAMA non offre
+per\`o garanzia di ottimalit\`a generale. Su Gripper 8 FD blind \`e
+circa 9 volte pi\`u rapido dell'indice nel tempo totale; LAMA circa 2
+volte. Sui due casi IPC piccoli il nostro eseguibile ha minor latenza
+di processo, ma avvio e traduzione dominano FD: per Gripper 1 la sua
+ricerca blind dura solo 0,000521 s, contro 0,1267 s di processo
+completo. Il confronto non prova superiorit\`a generale su tali casi.
+Con blind, FD espande 11\,743 stati per Gripper 8, contro 11\,773 della
+nostra ricerca. Le due configurazioni FD non esauriscono le sue
+opzioni di ricerca.
+
+\section{Limiti e conclusione}
+La valutazione riguarda due domini e pochi problemi, su una sola
+macchina. Le istanze Gripper grandi sono generate; non sostituiscono
+una suite IPC completa o un confronto di copertura entro timeout.
+Il planner continua a generare tutte le combinazioni di parametri
+prima della ricerca, perci\`o il problema del grounding descritto da
+Corr\^ea et al.~\cite{correa2020} rimane. Formule senza atomi
+positivi necessari usano la scansione completa. L'ottimizzazione offre
+un miglioramento locale, misurabile e semanticamente conservativo;
+non stabilisce competitivit\`a generale rispetto ai planner maturi.
+
+\begin{thebibliography}{9}
+\bibitem{correa2020}
+A.~B. Corr\^ea, F. Pommerening, M. Helmert e G. Franc\`es,
+``Lifted Successor Generation Using Query Optimization Techniques,''
+\emph{ICAPS}, vol. 30, pp. 80--89, 2020.
+\url{https://doi.org/10.1609/icaps.v30i1.6648}.
+\bibitem{correa2021}
+A.~B. Corr\^ea, G. Franc\`es, F. Pommerening e M. Helmert,
+``Delete-Relaxation Heuristics for Lifted Classical Planning,''
+\emph{ICAPS}, vol. 31, pp. 94--102, 2021.
+\url{https://doi.org/10.1609/icaps.v31i1.15951}.
+\bibitem{correa2022}
+A.~B. Corr\^ea, F. Pommerening, M. Helmert e G. Franc\`es,
+``The FF Heuristic for Lifted Classical Planning,''
+\emph{AAAI}, vol. 36, pp. 9716--9723, 2022.
+\url{https://doi.org/10.1609/aaai.v36i9.21206}.
+\bibitem{helmert2006}
+M. Helmert, ``The Fast Downward Planning System,''
+\emph{Journal of Artificial Intelligence Research}, vol. 26,
+pp. 191--246, 2006. \url{https://doi.org/10.1613/jair.1705}.
+\bibitem{pddlinstances}
+Potassco, \emph{PDDL Instances}, IPC 1998/2000,
+\url{https://github.com/potassco/pddl-instances}.
+\end{thebibliography}
+\end{document}
