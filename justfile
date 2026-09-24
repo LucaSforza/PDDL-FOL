@@ -38,3 +38,25 @@ installation:
     cargo install --force --locked --path lsp --root ~/.local
     install -Dm644 lsp/nvim/folplan.lua ~/.config/nvim/lua/plugins/folplan.lua
     install -Dm644 lsp/nvim/syntax/folplan.vim ~/.config/nvim/syntax/folplan.vim
+
+# Build pinned Fast Downward locally for benchmark comparisons.
+install-fast-downward:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    revision=9b81c7e422fdf7be9f73b96e9a7a969c483dd5d4
+    source_dir="$HOME/.local/share/fast-downward"
+    driver="$HOME/.local/bin/fast-downward.py"
+    if [[ ! -d "$source_dir/.git" ]]; then
+        git clone --depth 1 https://github.com/aibasel/downward.git "$source_dir"
+    fi
+    git -C "$source_dir" fetch --depth 1 origin "$revision"
+    git -C "$source_dir" -c advice.detachedHead=false checkout --detach "$revision"
+    cd "$source_dir"
+    CC=gcc CXX=g++ CCACHE_DISABLE=1 python3 build.py release
+    mkdir -p "$HOME/.local/bin"
+    if [[ -e "$driver" && ! -L "$driver" ]] ||
+       [[ -L "$driver" && "$(readlink "$driver")" != "$source_dir/fast-downward.py" ]]; then
+        printf 'Refusing to replace %s\n' "$driver" >&2
+        exit 1
+    fi
+    ln -sfn "$source_dir/fast-downward.py" "$driver"
