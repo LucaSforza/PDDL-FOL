@@ -1,0 +1,10 @@
+[package]
+name = "folplan-lsp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Language server for FOLPlan .fol files"
+
+[dependencies]
+pddl_fol = { path = ".." }
+serde_json = "1"
