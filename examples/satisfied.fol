@@ -1,0 +1,8 @@
+// The goal already holds, so the shortest plan is empty.
+problem satisfied {
+  types place;
+  objects { home: place; }
+  predicates { At(place); }
+  init: At(home);
+  goal: At(home);
+}

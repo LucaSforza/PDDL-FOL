@@ -1,0 +1,6 @@
+(define (problem logistics-route)
+  (:domain logistics)
+  (:objects depot hub - location parcel - package van - truck)
+  (:init (at-package parcel depot) (at-truck van depot)
+         (road depot hub) (road hub depot))
+  (:goal (at-package parcel hub)))

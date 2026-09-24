@@ -1,0 +1,5 @@
+(define (problem already-there)
+  (:domain satisfied)
+  (:objects home - place)
+  (:init (at home))
+  (:goal (at home)))

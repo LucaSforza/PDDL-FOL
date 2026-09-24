@@ -1,0 +1,5 @@
+(define (problem unreachable-place)
+  (:domain impossible)
+  (:objects start goal - place)
+  (:init (at start))
+  (:goal (at goal)))

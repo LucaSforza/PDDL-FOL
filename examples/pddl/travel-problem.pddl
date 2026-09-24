@@ -1,0 +1,5 @@
+(define (problem travel-office)
+  (:domain travel)
+  (:objects home office - place)
+  (:init (at home) (road home office))
+  (:goal (at office)))

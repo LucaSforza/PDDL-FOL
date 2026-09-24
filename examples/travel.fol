@@ -1,0 +1,13 @@
+// A one-step trip from home to the office.
+problem travel {
+  types place;
+  objects { home, office: place; }
+  predicates { At(place); Road(place, place); }
+  init: At(home) & Road(home, office);
+  goal: At(office);
+
+  action Move(from: place, to: place) {
+    pre: At(from) & Road(from, to) & from != to;
+    effect: !At(from) & At(to);
+  }
+}

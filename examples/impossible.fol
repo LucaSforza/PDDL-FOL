@@ -1,0 +1,13 @@
+// There is no road from the initial location to the goal location.
+problem impossible {
+  types place;
+  objects { start, goal: place; }
+  predicates { At(place); Road(place, place); }
+  init: At(start);
+  goal: At(goal);
+
+  action Move(from: place, to: place) {
+    pre: At(from) & Road(from, to);
+    effect: !At(from) & At(to);
+  }
+}

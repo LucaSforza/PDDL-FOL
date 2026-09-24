@@ -1,0 +1,10 @@
+(define (domain inspection)
+  (:requirements :strips :typing :quantified-preconditions)
+  (:types item inspector)
+  (:predicates (pending ?x - item) (inspected ?x - item)
+               (can-inspect ?worker - inspector ?x - item))
+  (:action inspect
+    :parameters (?x - item)
+    :precondition (and (pending ?x)
+                       (exists (?worker - inspector) (can-inspect ?worker ?x)))
+    :effect (and (inspected ?x) (not (pending ?x)))))

@@ -1,0 +1,5 @@
+(define (problem blocks-slide-state)
+  (:domain blocks)
+  (:objects a b c - block)
+  (:init (on c a) (on-table a) (on-table b) (clear c) (clear b))
+  (:goal (and (on a b) (on b c) (on-table c))))

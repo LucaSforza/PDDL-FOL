@@ -1,0 +1,18 @@
+// Clear is defined in FOL instead of maintained as a separate predicate.
+// This reproduces the slide arrangement and its initial fact On(c,a).
+problem blocks-quantified {
+  types block, surface;
+  objects { a, b, c: block; table: surface; }
+  predicates { On(block, object); }
+  init: On(b, table) ∧ On(a, table) ∧ On(c, a);
+  goal: On(a, b) ∧ On(b, c) ∧ On(c, table);
+
+  action Move(b: block, from: object, to: object) {
+    pre: On(b, from)
+      ∧ b ≠ to
+      ∧ from ≠ to
+      ∧ (∀ z: block . ¬On(z, b))
+      ∧ (to ≠ table → (∀ z: block . ¬On(z, to)));
+    effect: ¬On(b, from) ∧ On(b, to);
+  }
+}

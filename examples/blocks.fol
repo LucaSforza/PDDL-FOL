@@ -1,0 +1,17 @@
+// Blocks world with explicit Clear facts; the initial state includes On(c,a).
+problem blocks {
+  types block;
+  objects { a, b, c: block; }
+  predicates { On(block, block); OnTable(block); Clear(block); }
+  init: On(c, a) & OnTable(a) & OnTable(b) & Clear(c) & Clear(b);
+  goal: On(a, b) & On(b, c) & OnTable(c);
+
+  action Unstack(x: block, y: block) {
+    pre: On(x, y) & Clear(x);
+    effect: !On(x, y) & OnTable(x) & Clear(y);
+  }
+  action Stack(x: block, y: block) {
+    pre: OnTable(x) & Clear(x) & Clear(y) & x != y;
+    effect: !OnTable(x) & On(x, y) & !Clear(y);
+  }
+}

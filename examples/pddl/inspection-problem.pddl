@@ -1,0 +1,6 @@
+(define (problem inspect-all)
+  (:domain inspection)
+  (:objects sample-a sample-b - item robot - inspector)
+  (:init (pending sample-a) (pending sample-b)
+         (can-inspect robot sample-a) (can-inspect robot sample-b))
+  (:goal (forall (?x - item) (inspected ?x))))
