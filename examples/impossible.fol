@@ -1,10 +1,10 @@
 // There is no road from the initial location to the goal location.
 problem impossible {
   types place;
-  objects { start, goal: place; }
+  objects { start, goal_: place; }
   predicates { At(place); Road(place, place); }
   init: At(start);
-  goal: At(goal);
+  goal: At(goal_);
 
   action Move(from: place, to: place) {
     pre: At(from) and Road(from, to);
