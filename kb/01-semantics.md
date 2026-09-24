@@ -31,6 +31,18 @@ transitions. It is **not** a general FOL prover or a resolution engine for the
 situation calculus: FOL is used to specify and evaluate preconditions and goals
 over finite models.
 
+## Conversion pipeline
+
+DSL infix syntax and PDDL prefix syntax become the same typed formula AST.
+DSL effect literals become separate Add/Delete lists. Parameters are grounded
+over compatible objects; preconditions and quantifiers are evaluated with
+bindings on demand. No CNF, SAT, or resolution conversion is performed.
+The implementation enforces successor-state axioms operationally through set
+updates; it does not export or prove an unrestricted axiom theory. A situation
+is an action history, distinct from its resulting state. BFS merges histories
+with identical resulting states, while retaining one predecessor chain to
+construct the returned situation witness.
+
 ## Search
 
 Forward BFS, with ground actions obtained from the Cartesian product of typed

@@ -77,14 +77,14 @@ sequenceDiagram
 ## Module responsibilities
 
 `model.rs`: data structures and `Error`; `logic.rs`: validation/evaluation;
-`planner.rs`: grounding, BFS, plan replay; `parser.rs`: coordinate-aware
-S-expression lexer, DSL, and PDDL; `main.rs`: I/O and arguments; `lib.rs`: API
+`planner.rs`: grounding, BFS, plan replay; `dsl.rs`: coordinate-aware infix DSL
+lexer/parser; `parser.rs`: standard PDDL S-expression parser; `main.rs`: I/O and arguments; `lib.rs`: API
 and rustdoc.
 
 API fixed before delegation (public fields for programmatic construction):
 
 ```text
-Binding { name: String, ty: String }
+Binding { name: String, ty: String } // variables stored without a '?' prefix
 Term::{Variable(String), Constant(String)}
 Atom { predicate: String, terms: Vec<Term> }
 GroundAtom { predicate: String, arguments: Vec<String> }
