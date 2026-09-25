@@ -68,9 +68,11 @@ does not support costs, numeric fluents, functions, conditional or quantified
 effects, derived predicates, type hierarchies, uncertainty, concurrency, or
 external SAT/SMT solvers.
 
-Search stores at most 100,000 states and grounds at most 100,000 actions by
-default. Both limits can be changed on search commands. These are storage and
-grounding limits, not time limits; nested quantifiers may still be expensive.
+Search stores at most 100,000 states and emits at most 100,000 distinct
+grounded action candidates by default. Positive conjunctive preconditions
+filter candidates through state facts; other formulas use bounded fallback.
+Both limits can be changed on search commands. These are storage and candidate
+limits, not time limits; nested quantifiers may still be expensive.
 Input nesting, action parameters, and combined formula nesting and quantified
 bindings are bounded at 256.
 

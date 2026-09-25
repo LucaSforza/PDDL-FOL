@@ -198,7 +198,10 @@ folplan check-pddl domain.pddl problem.pddl
 folplan --help
 ```
 
-Limits must be positive integers. `check` parses and validates without search.
+Limits must be positive integers. `--max-ground-actions` caps distinct grounded
+action candidates emitted across the search, after positive conjunctive
+preconditions have filtered them. Schemas without such atoms fall back to
+bounded Cartesian candidate generation. `check` parses and validates without search.
 Exit status is `0` for a plan or successful validation, `1` for I/O, syntax,
 semantic, or argument errors, `2` when search proves the goal unreachable,
 and `3` when a state or grounding limit is reached.
@@ -238,8 +241,9 @@ assert_eq!(reached, plan.final_state);
 assert!(evaluate(&task, &reached, &task.goal).unwrap());
 ```
 
-The planner is a teaching-scale finite-state BFS. Nested quantifiers and large
-groundings can be expensive even when storage limits are respected. The model
+The planner is a teaching-scale finite-state BFS. Nested quantifiers, wide
+joins, Cartesian fallback, and large reachable state spaces can be expensive.
+The model
 has no action costs, uncertainty, concurrency, numeric fluents, or external
 SAT/SMT solver.
 

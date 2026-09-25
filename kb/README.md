@@ -15,3 +15,5 @@ into the repository.
 
 Goal: a genuinely executable Rust library and CLI, with a FOL DSL and an
 explicitly limited PDDL importer, examples, rustdoc, and automated tests.
+
+Language convention: write all project prose in English, including source comments, documentation, knowledge-base entries, benchmark and chart labels, reports, PR descriptions, and future user-facing text. Preserve valid PDDL syntax and identifiers; do not translate PDDL keywords or domain/problem literals.
