@@ -1,10 +1,12 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use crate::logic::{eval_with_bindings, validate};
 use crate::model::{
     Action, Atom, Error, Formula, GroundAction, GroundAtom, Plan, SearchLimits, SearchOutcome,
     State, Task, Term,
 };
+
+const MAX_JOIN_ATOMS: usize = 256;
 
 /// Finds a shortest plan with forward breadth-first search.
 pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> {
@@ -19,18 +21,13 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
             explored: 1,
         }));
     }
-    let grounded = ground_actions(task, limits.max_ground_actions)?;
-    let mut by_required_atom: HashMap<GroundAtom, Vec<usize>> = HashMap::new();
-    let mut unfiltered = Vec::new();
-    for (index, (schema_index, ground)) in grounded.iter().enumerate() {
-        let schema = &task.actions[*schema_index];
-        if let Some(atom) = required_atom(&schema.precondition) {
-            let key = instantiate(atom, &action_environment(schema, ground))?;
-            by_required_atom.entry(key).or_default().push(index);
-        } else {
-            unfiltered.push(index);
-        }
-    }
+    let object_order: HashMap<&str, usize> = task
+        .objects
+        .iter()
+        .enumerate()
+        .map(|(index, object)| (object.name.as_str(), index))
+        .collect();
+    let mut generated = BTreeSet::new();
 
     struct Node {
         state: State,
@@ -44,8 +41,6 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
     let mut seen = BTreeMap::from([(task.initial.clone(), 0usize)]);
     let mut queue = VecDeque::from([0usize]);
     let mut explored = 0;
-    let mut candidates = Vec::new();
-
     while let Some(index) = queue.pop_front() {
         explored += 1;
         let state = nodes[index].state.clone();
@@ -64,17 +59,14 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
             }));
         }
 
-        candidates.clear();
-        candidates.extend_from_slice(&unfiltered);
-        for atom in &state {
-            if let Some(actions) = by_required_atom.get(atom) {
-                candidates.extend_from_slice(actions);
-            }
-        }
-        // Each action has one index key; sorting keeps BFS tie-breaking unchanged.
-        candidates.sort_unstable();
-        for &candidate in &candidates {
-            let (schema_index, ground) = &grounded[candidate];
+        let candidates = applicable_actions(
+            task,
+            &state,
+            limits.max_ground_actions,
+            &object_order,
+            &mut generated,
+        )?;
+        for (schema_index, ground) in &candidates {
             let schema = &task.actions[*schema_index];
             let env = action_environment(schema, ground);
             if !eval_with_bindings(task, &state, &schema.precondition, &mut env.clone())? {
@@ -128,65 +120,161 @@ pub fn replay(task: &Task, steps: &[GroundAction]) -> Result<State, Error> {
 }
 
 // Only atoms reached through conjunction must hold in every applicable state.
-fn required_atom(formula: &Formula) -> Option<&Atom> {
+fn positive_conjuncts<'a>(formula: &'a Formula, atoms: &mut Vec<&'a Atom>) {
+    // Remaining conjuncts stay in the full formula check; this only bounds join recursion.
+    if atoms.len() == MAX_JOIN_ATOMS {
+        return;
+    }
     match formula {
-        Formula::Atom(atom) => Some(atom),
-        Formula::And(parts) => parts
-            .iter()
-            .filter_map(required_atom)
-            .max_by_key(|atom| atom.terms.len()),
-        _ => None,
-    }
-}
-
-fn ground_actions(task: &Task, limit: usize) -> Result<Vec<(usize, GroundAction)>, Error> {
-    let mut result = Vec::new();
-    for (schema_index, action) in task.actions.iter().enumerate() {
-        if action.parameters.iter().any(|parameter| {
-            !task
-                .objects
-                .iter()
-                .any(|object| parameter.ty == "object" || object.ty == parameter.ty)
-        }) {
-            continue;
+        Formula::Atom(atom) => atoms.push(atom),
+        Formula::And(parts) => {
+            for part in parts {
+                if atoms.len() == MAX_JOIN_ATOMS {
+                    break;
+                }
+                positive_conjuncts(part, atoms);
+            }
         }
-        let mut args = Vec::with_capacity(action.parameters.len());
-        enumerate_parameters(task, schema_index, action, 0, &mut args, limit, &mut result)?;
+        _ => {}
     }
-    Ok(result)
 }
 
-fn enumerate_parameters(
+fn applicable_actions(
     task: &Task,
-    schema_index: usize,
+    state: &State,
+    limit: usize,
+    object_order: &HashMap<&str, usize>,
+    generated: &mut BTreeSet<(usize, Vec<String>)>,
+) -> Result<Vec<(usize, GroundAction)>, Error> {
+    let mut candidates = BTreeMap::new();
+    for (schema_index, schema) in task.actions.iter().enumerate() {
+        let mut atoms = Vec::new();
+        positive_conjuncts(&schema.precondition, &mut atoms);
+        // Bind from the most selective available relation first.
+        atoms.sort_by_key(|atom| {
+            state
+                .iter()
+                .filter(|fact| {
+                    fact.predicate == atom.predicate && fact.arguments.len() == atom.terms.len()
+                })
+                .count()
+        });
+        let mut emit_binding = |binding: &HashMap<String, String>| {
+            let mut binding = binding.clone();
+            complete_binding(task, schema, 0, &mut binding, &mut |binding| {
+                let arguments = schema
+                    .parameters
+                    .iter()
+                    .map(|parameter| binding[&parameter.name].clone())
+                    .collect::<Vec<_>>();
+                let key = (schema_index, arguments.clone());
+                if generated.insert(key.clone()) && generated.len() > limit {
+                    return Err(Error::grounding_limit(format!(
+                        "ground action limit ({limit}) exceeded"
+                    )));
+                }
+                candidates.entry(key).or_insert_with(|| GroundAction {
+                    name: schema.name.clone(),
+                    arguments,
+                });
+                Ok(())
+            })
+        };
+        if atoms.is_empty() {
+            emit_binding(&HashMap::new())?;
+        } else {
+            join_atoms(state, &atoms, 0, &mut HashMap::new(), &mut emit_binding)?;
+        }
+    }
+
+    let mut result = candidates
+        .into_iter()
+        .map(|((schema_index, arguments), ground)| (schema_index, arguments, ground))
+        .collect::<Vec<_>>();
+    result.sort_by_key(|(schema_index, arguments, _)| {
+        (
+            *schema_index,
+            arguments
+                .iter()
+                .map(|argument| object_order[argument.as_str()])
+                .collect::<Vec<_>>(),
+        )
+    });
+    Ok(result
+        .into_iter()
+        .map(|(schema_index, _, ground)| (schema_index, ground))
+        .collect())
+}
+
+fn join_atoms(
+    state: &State,
+    atoms: &[&Atom],
+    index: usize,
+    binding: &mut HashMap<String, String>,
+    emit: &mut impl FnMut(&HashMap<String, String>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    if index == atoms.len() {
+        return emit(binding);
+    }
+    let atom = atoms[index];
+    for fact in state
+        .iter()
+        .filter(|fact| fact.predicate == atom.predicate && fact.arguments.len() == atom.terms.len())
+    {
+        let mut inserted = Vec::new();
+        let matches = atom
+            .terms
+            .iter()
+            .zip(&fact.arguments)
+            .all(|(term, value)| match term {
+                Term::Constant(name) => name == value,
+                Term::Variable(name) => match binding.get(name) {
+                    Some(bound) => bound == value,
+                    None => {
+                        binding.insert(name.clone(), value.clone());
+                        inserted.push(name.clone());
+                        true
+                    }
+                },
+            });
+        if matches {
+            join_atoms(state, atoms, index + 1, binding, emit)?;
+        }
+        for name in inserted {
+            binding.remove(&name);
+        }
+    }
+    Ok(())
+}
+
+fn complete_binding(
+    task: &Task,
     schema: &Action,
     index: usize,
-    args: &mut Vec<String>,
-    limit: usize,
-    result: &mut Vec<(usize, GroundAction)>,
+    binding: &mut HashMap<String, String>,
+    emit: &mut impl FnMut(&HashMap<String, String>) -> Result<(), Error>,
 ) -> Result<(), Error> {
     if index == schema.parameters.len() {
-        if result.len() >= limit {
-            return Err(Error::grounding_limit(format!(
-                "ground action limit ({limit}) exceeded"
-            )));
-        }
-        let ground = GroundAction {
-            name: schema.name.clone(),
-            arguments: args.clone(),
-        };
-        result.push((schema_index, ground));
-        return Ok(());
+        return emit(binding);
     }
     let parameter = &schema.parameters[index];
+    if let Some(value) = binding.get(&parameter.name) {
+        let type_matches = task.objects.iter().any(|object| {
+            object.name == *value && (parameter.ty == "object" || object.ty == parameter.ty)
+        });
+        if !type_matches {
+            return Ok(());
+        }
+        return complete_binding(task, schema, index + 1, binding, emit);
+    }
     for object in task
         .objects
         .iter()
         .filter(|object| parameter.ty == "object" || object.ty == parameter.ty)
     {
-        args.push(object.name.clone());
-        enumerate_parameters(task, schema_index, schema, index + 1, args, limit, result)?;
-        args.pop();
+        binding.insert(parameter.name.clone(), object.name.clone());
+        complete_binding(task, schema, index + 1, binding, emit)?;
+        binding.remove(&parameter.name);
     }
     Ok(())
 }
@@ -349,6 +437,188 @@ mod tests {
         };
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(replay(&task, &plan.steps).unwrap(), plan.final_state);
+    }
+
+    #[test]
+    fn sparse_high_arity_precondition_avoids_cartesian_grounding() {
+        let objects = (0..32)
+            .map(|index| Binding {
+                name: format!("o{index}"),
+                ty: "object".into(),
+            })
+            .collect::<Vec<_>>();
+        let parameters = (0..8)
+            .map(|index| Binding {
+                name: format!("x{index}"),
+                ty: "object".into(),
+            })
+            .collect::<Vec<_>>();
+        let vars = parameters
+            .iter()
+            .map(|parameter| Term::Variable(parameter.name.clone()))
+            .collect::<Vec<_>>();
+        let task = Task {
+            name: "sparse-high-arity".into(),
+            types: vec![],
+            objects,
+            predicates: vec![
+                Predicate {
+                    name: "tuple".into(),
+                    parameters: vec!["object".into(); 8],
+                },
+                Predicate {
+                    name: "done".into(),
+                    parameters: vec![],
+                },
+            ],
+            actions: vec![Action {
+                name: "finish".into(),
+                parameters,
+                precondition: Formula::Atom(Atom {
+                    predicate: "tuple".into(),
+                    terms: vars,
+                }),
+                add: vec![Atom {
+                    predicate: "done".into(),
+                    terms: vec![],
+                }],
+                delete: vec![],
+            }],
+            initial: BTreeSet::from([GroundAtom {
+                predicate: "tuple".into(),
+                arguments: (0..8).map(|index| format!("o{index}")).collect(),
+            }]),
+            goal: Formula::Atom(Atom {
+                predicate: "done".into(),
+                terms: vec![],
+            }),
+        };
+        let SearchOutcome::Solved(plan) = solve(
+            &task,
+            SearchLimits {
+                max_states: 2,
+                max_ground_actions: 1,
+            },
+        )
+        .unwrap() else {
+            panic!("the sparse high-arity action should solve within one candidate");
+        };
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(
+            plan.steps[0].arguments,
+            (0..8).map(|i| format!("o{i}")).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn joined_atoms_respect_action_parameter_types() {
+        let task = Task {
+            name: "typed-join".into(),
+            types: vec!["place".into(), "item".into()],
+            objects: vec![
+                Binding {
+                    name: "home".into(),
+                    ty: "place".into(),
+                },
+                Binding {
+                    name: "foreign".into(),
+                    ty: "item".into(),
+                },
+            ],
+            predicates: vec![
+                Predicate {
+                    name: "p".into(),
+                    parameters: vec!["object".into()],
+                },
+                Predicate {
+                    name: "done".into(),
+                    parameters: vec![],
+                },
+            ],
+            actions: vec![Action {
+                name: "finish".into(),
+                parameters: vec![Binding {
+                    name: "x".into(),
+                    ty: "place".into(),
+                }],
+                precondition: Formula::Atom(Atom {
+                    predicate: "p".into(),
+                    terms: vec![Term::Variable("x".into())],
+                }),
+                add: vec![Atom {
+                    predicate: "done".into(),
+                    terms: vec![],
+                }],
+                delete: vec![],
+            }],
+            initial: BTreeSet::from([GroundAtom {
+                predicate: "p".into(),
+                arguments: vec!["foreign".into()],
+            }]),
+            goal: Formula::Atom(Atom {
+                predicate: "done".into(),
+                terms: vec![],
+            }),
+        };
+        assert!(matches!(
+            solve(&task, SearchLimits::default()).unwrap(),
+            SearchOutcome::Unsolvable { .. }
+        ));
+    }
+
+    #[test]
+    fn large_flat_conjunction_uses_bounded_join_and_full_evaluation() {
+        let mut task = travel_task();
+        task.actions[0].precondition = Formula::And(
+            (0..300)
+                .map(|_| {
+                    Formula::Atom(Atom {
+                        predicate: "at".into(),
+                        terms: vec![Term::Variable("from".into())],
+                    })
+                })
+                .collect(),
+        );
+        let SearchOutcome::Solved(plan) = solve(&task, SearchLimits::default()).unwrap() else {
+            panic!("all 300 positive conjuncts hold for the source location");
+        };
+        assert_eq!(plan.steps.len(), 1);
+    }
+
+    #[test]
+    fn disjunction_and_quantifier_fall_back_to_bounded_grounding() {
+        let fallback_preconditions = [
+            Formula::Or(vec![
+                Formula::Atom(Atom {
+                    predicate: "at".into(),
+                    terms: vec![Term::Constant("b".into())],
+                }),
+                Formula::And(vec![]),
+            ]),
+            Formula::Exists(
+                vec![Binding {
+                    name: "witness".into(),
+                    ty: "place".into(),
+                }],
+                Box::new(Formula::Equal(
+                    Term::Variable("witness".into()),
+                    Term::Variable("to".into()),
+                )),
+            ),
+        ];
+        for precondition in fallback_preconditions {
+            let mut task = travel_task();
+            task.actions[0].precondition = precondition;
+            let error = solve(
+                &task,
+                SearchLimits {
+                    max_states: 100,
+                    max_ground_actions: 1,
+                },
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), crate::model::ErrorKind::GroundingLimit);
+        }
     }
 
     #[test]

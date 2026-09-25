@@ -88,7 +88,12 @@ fn cli_reports_errors_and_resource_limits_with_distinct_exit_codes() {
         3,
     );
     assert_exit(
-        &cli(&["solve", "examples/travel.fol", "--max-ground-actions", "1"]),
+        &cli(&[
+            "solve",
+            "examples/blocks-quantified.fol",
+            "--max-ground-actions",
+            "1",
+        ]),
         3,
     );
 }

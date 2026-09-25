@@ -140,7 +140,11 @@ impl fmt::Display for GroundAction {
     }
 }
 
-/// Limits on the number of states stored and ground actions generated.
+/// Limits on stored states and distinct grounded action candidates emitted by search.
+///
+/// `max_ground_actions` counts schema/argument pairs considered across explored states,
+/// after positive conjunctive preconditions have filtered them and before evaluating
+/// the full precondition. It does not cap the size of the Cartesian grounding universe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchLimits {
     pub max_states: usize,

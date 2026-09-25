@@ -48,9 +48,9 @@ flowchart LR
     D[Domain + PDDL problem] --> P
     P --> T[Shared Task]
     T --> V[Semantic validation]
-    V --> G[Typed grounding]
-    G --> B[BFS]
-    B --> E[FOL evaluation + transitions]
+    V --> B[BFS]
+    B --> G[Lifted candidate joins]
+    G --> E[FOL evaluation + transitions]
     E --> B
     B --> R[Plan / impossible / limit]
     R --> C[CLI and rustdoc]
@@ -66,6 +66,8 @@ sequenceDiagram
     Solver->>Validator: validate(task)
     Solver->>Evaluator: goal(initial)
     loop BFS states until goal or exhaustion
+        Solver->>Solver: join positive conjuncts with state facts
+        Solver->>Solver: complete remaining typed parameters
         Solver->>Evaluator: precondition(state, binding)
         Evaluator-->>Solver: bool
         Solver->>Solver: delete, add, deduplicate
@@ -77,7 +79,7 @@ sequenceDiagram
 ## Module responsibilities
 
 `model.rs`: data structures and `Error`; `logic.rs`: validation/evaluation;
-`planner.rs`: grounding, BFS, plan replay; `dsl.rs`: coordinate-aware infix DSL
+`planner.rs`: lifted candidate generation, BFS, plan replay; `dsl.rs`: coordinate-aware infix DSL
 lexer/parser; `parser.rs`: standard PDDL S-expression parser; `main.rs`: I/O and arguments; `lib.rs`: API
 and rustdoc.
 
@@ -111,6 +113,9 @@ replay(&Task, &[GroundAction]) -> Result<State, Error>
 
 `solve` and `replay` always validate the Task. `evaluate` checks the formula,
 state, and model; the engine internally uses an already-validated evaluation.
+`max_ground_actions` caps distinct schema/argument candidates emitted across
+search states, after positive conjunctive filtering and before full formula
+evaluation. Other precondition forms use bounded Cartesian fallback.
 Grounding-limit errors have kind `ErrorKind::GroundingLimit`; all other model
 and input errors have kind `ErrorKind::InvalidInput`. DSL and PDDL names are
 ASCII case-insensitive and normalized to lowercase. No `unsafe`.
