@@ -1,184 +1,180 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[italian]{babel}
+\usepackage[english]{babel}
 \usepackage{amsmath,amssymb,booktabs,geometry,hyperref}
 \geometry{margin=1.5cm}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
 
-\title{Indicizzazione di precondizioni necessarie\\
-per la generazione di successori PDDL}
-\author{Rapporto tecnico su \texttt{pddl\_fol}}
-\date{24 settembre 2026}
+\title{Indexing Necessary Preconditions\\
+for PDDL Successor Generation}
+\author{Technical Report on \texttt{pddl\_fol}}
+\date{September 24, 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Il planner \texttt{pddl\_fol} usa ricerca in ampiezza e valuta ogni azione
-istanzata in ogni stato. Studiamo un indice che seleziona le azioni tramite
-un atomo positivo necessario della precondizione, lasciando invariata la
-valutazione completa della formula del primo ordine. Sul caso Gripper 1
-dell'IPC 1998 il tempo mediano di processo scende da 107,1 a 13,2 ms
-(8,14$\times$); su due problemi Gripper generati con 7 e 8 palline
-il miglioramento raggiunge 12,13$\times$ e 13,80$\times$. Piani e stati
-esplorati coincidono con la versione iniziale. I risultati riguardano
-una selezione di successori \emph{dopo} il grounding: non dimostrano
-un miglioramento generale della pianificazione FOL.
+The \texttt{pddl\_fol} planner uses breadth-first search and evaluates every
+grounded action in every state. We study an index that selects actions
+using a necessary positive atom from the precondition, while leaving the
+full first-order formula evaluation unchanged. On IPC 1998 Gripper 1,
+median process time falls from 107.1 to 13.2 ms (8.14$\times$); on two
+generated Gripper problems with 7 and 8 balls, the improvement reaches
+12.13$\times$ and 13.80$\times$. Plans and explored-state counts match
+the baseline. Results concern successor selection \emph{after} grounding;
+they do not demonstrate a general improvement in FOL planning.
 \end{abstract}
 
-\section{Motivazione e lavoro correlato}
-Il PDDL descrive schemi d'azione con variabili e formule del primo ordine.
-Molti planner effettuano il grounding prima della ricerca. Corr\^ea et
-al.~\cite{correa2020} interpretano invece la generazione lifted dei
-successori come valutazione di query su uno stato e studiano
-ottimizzazioni di database. Euristiche lifted basate sul rilassamento
-delle cancellazioni e su FF sono state proposte in seguito
-\cite{correa2021,correa2022}. Fast Downward usa una rappresentazione e
-generatori di successori diversi da questo progetto~\cite{helmert2006}.
+\section{Motivation and Related Work}
+PDDL describes action schemas with variables and first-order formulas.
+Many planners ground actions before search. Corr\^ea et al.~\cite{correa2020}
+instead interpret lifted successor generation as query evaluation over a
+state and study database optimizations. Lifted heuristics based on
+delete relaxation and FF were proposed later~\cite{correa2021,correa2022}.
+Fast Downward uses a representation and successor generators that differ
+from this project~\cite{helmert2006}.
 
-Questo studio affronta un collo di bottiglia pi\`u stretto: il ciclo che
-scansiona tutte le azioni gi\`a istanziate a ogni espansione. Non introduce
-un solver FOL esterno, ricerca lifted o nuova euristica. L'idea di
-trattare l'applicabilit\`a come query motiva l'indice, ma l'algoritmo
-resta pienamente grounded.
+This study addresses a narrower bottleneck: the loop that scans every
+already-grounded action at each expansion. It introduces no external FOL
+solver, lifted search, or new heuristic. Treating applicability as a query
+motivates the index, but the algorithm remains fully grounded.
 
-\section{Indice e correttezza}
-Sia $A$ la sequenza delle azioni istanziate e $s$ l'insieme degli atomi
-veri nello stato. Per ogni azione $a$, cerchiamo un atomo positivo
-$r(a)$ che deve essere vero ogni volta che la sua precondizione
-$\varphi_a$ \`e vera. La ricerca attraversa solo nodi atomici e
-congiunzioni: tra i candidati sceglie un atomo di arit\`a massima.
-I sottoalberi con disgiunzioni, negazioni, implicazioni o quantificatori
-non producono vincoli per questo indice. Un'azione senza atomi
-necessari entra nell'insieme $U$ non filtrato.
+\section{Index and Correctness}
+Let $A$ be the sequence of grounded actions and $s$ the set of atoms
+true in the state. For each action $a$, we seek a positive atom $r(a)$
+that must be true whenever its precondition $\varphi_a$ is true. The
+search traverses only atom and conjunction nodes; among candidates, it
+chooses an atom of maximum arity. Subtrees containing disjunctions,
+negations, implications, or quantifiers provide no constraints for this
+index. An action with no necessary positive atom is placed in the
+unfiltered set $U$.
 
-Prima della ricerca costruiamo $I_p=\{a\in A:r(a)=p\}$.
-Per ogni stato valutiamo soltanto
+Before search, we build $I_p=\{a\in A:r(a)=p\}$.
+For each state, we evaluate only
 \begin{equation}
  C(s)=U\cup\bigcup_{p\in s} I_p.
 \end{equation}
-Ordiniamo $C(s)$ secondo l'ordine originario di $A$, poi valutiamo
-l'intera precondizione per ogni candidato. Se $a$ \`e applicabile,
-$\varphi_a(s)$ \`e vera; per costruzione $r(a)$ \`e vero in $s$, oppure
-$a\in U$. Quindi $a\in C(s)$: nessuna azione applicabile viene persa.
-L'ordine della ricerca in ampiezza e il criterio di spareggio restano
-invariati. L'indice richiede memoria aggiuntiva proporzionale ad $|A|$;
-il costo del grounding non cambia.
+We order $C(s)$ according to the original order in $A$, then evaluate
+the full precondition for each candidate. If $a$ is applicable,
+$\varphi_a(s)$ is true; by construction, $r(a)$ is true in $s$, or
+$a\in U$. Therefore $a\in C(s)$: no applicable action is omitted.
+Breadth-first search order and tie-breaking remain unchanged. The index
+requires additional memory proportional to $|A|$; grounding cost is
+unchanged.
 
-\section{Protocollo sperimentale}
-Confrontiamo il commit iniziale \texttt{1487d5c} con il branch indicizzato,
-entrambi compilati con \texttt{cargo build --release} e Rust 1.92.0.
-Macchina: AMD Ryzen 5 7640U, Linux 7.2.5, 12 CPU logiche. Ogni misura
-usa \texttt{time.perf\_counter} attorno al processo CLI completo,
-compresi avvio, parsing, grounding e ricerca. Le esecuzioni delle due
-versioni sono alternate; riportiamo la mediana di 20 coppie per le
-istanze IPC e 3 coppie per i due problemi generati. Limite di ricerca:
-\texttt{--max-states 100000}. Nessun controllo della frequenza CPU;
-i tempi brevi, soprattutto Blocks, sono sensibili al rumore.
+\section{Experimental Protocol}
+We compare initial commit \texttt{1487d5c} with the indexed branch,
+both compiled using \texttt{cargo build --release} and Rust 1.92.0.
+Machine: AMD Ryzen 5 7640U, Linux 7.2.5, 12 logical CPUs. Each measurement
+uses \texttt{time.perf\_counter} around the full CLI process, including
+startup, parsing, grounding, and search. Runs of the two versions are
+interleaved; we report the median of 20 pairs for IPC instances and 3 pairs
+for the two generated problems. Search limit: \texttt{--max-states 100000}.
+CPU frequency was not controlled; short runtimes, especially Blocks, are
+sensitive to noise.
 
-I file di dominio e problema Gripper 1 (IPC 1998) e Blocks 4-0 tipizzato
-(IPC 2000) provengono dal corpus pubblico \texttt{pddl-instances},
-revisione \texttt{cf19edf7}~\cite{pddlinstances}. I problemi \texttt{benchmarks/gripper-7.pddl} e
-\texttt{benchmarks/gripper-8.pddl}, inclusi nel repository, estendono
-lo stesso dominio a 7 e 8 palline; \emph{non} sono istanze ufficiali IPC.
-Per tutte le righe, la versione iniziale e quella indicizzata producono
-output CLI identico, inclusi piano e numero di stati esplorati.
+The Gripper 1 (IPC 1998) and typed Blocks 4-0 (IPC 2000) domain and
+problem files come from the public \texttt{pddl-instances} corpus,
+revision \texttt{cf19edf7}~\cite{pddlinstances}. The repository files
+\path{benchmarks/gripper-7.pddl} and \path{benchmarks/gripper-8.pddl}
+extend the same domain to 7 and 8 balls; they are \emph{not} official IPC
+instances. For every row, the baseline and indexed versions produce
+identical CLI output, including the plan and number of explored states.
 
-\section{Risultati}
+\section{Results}
 \begin{table}[h]
 \centering
 \small
 \begin{tabular}{lrrrrr}
 \toprule
-Problema & Base (s) & Indice (s) & Fattore & Stati & Passi \\
+Problem & Baseline (s) & Index (s) & Speedup & States & Steps \\
 \midrule
 Blocks 4-0, IPC 2000 & 0.003592 & 0.002644 & 1.36 & 111 & 6 \\
 Gripper 1, IPC 1998 & 0.107071 & 0.013155 & 8.14 & 253 & 11 \\
-Gripper 7, generato & 5.344382 & 0.440760 & 12.13 & 4735 & 21 \\
-Gripper 8, generato & 17.432608 & 1.262869 & 13.80 & 11773 & 23 \\
+Gripper 7, generated & 5.344382 & 0.440760 & 12.13 & 4735 & 21 \\
+Gripper 8, generated & 17.432608 & 1.262869 & 13.80 & 11773 & 23 \\
 \bottomrule
 \end{tabular}
-\caption{Tempo mediano end-to-end sullo stesso host. ``Fattore'' = Base/Indice.}
+\caption{Median end-to-end runtime on the same host. Speedup = Baseline/Index.}
 \label{tab:ours}
 \end{table}
 
-Il miglioramento cresce nei problemi Gripper pi\`u grandi, dove il
-vecchio ciclo valuta molte istanze di azione inutili per ogni stato.
-Blocks 4-0 \`e troppo piccolo per trarre conclusioni solide dal
-rapporto di 1,36$\times$. Gli stati esplorati restano gli stessi:
-l'indice accelera la generazione di successori, non riduce la ricerca.
+The improvement grows on larger Gripper problems, where the old loop
+evaluates many unnecessary action instances for every state. Blocks 4-0
+is too small for firm conclusions from its 1.36$\times$ ratio. The
+number of explored states remains unchanged: the index speeds up
+successor generation; it does not reduce search.
 
-\subsection{Confronto con Fast Downward}
-Abbiamo compilato Fast Downward 26.6+ dal commit
-\texttt{9b81c7e422fdf7be9f73b96e9a7a969c483dd5d4} in modalit\`a
-\texttt{release} (GCC/G++ 16.2.1). Misuriamo sia
-\texttt{astar(blind())}, riferimento ottimo senza euristica informativa,
-sia l'alias \texttt{seq-sat-lama-2011}, planner euristico
-satisficing. Il comando \texttt{just install-fast-downward} installa
-questa revisione in \texttt{\~{}/.local/bin}; i problemi sono identici
-a quelli della Tabella~\ref{tab:ours}. I tempi FD sono mediane di 20
-esecuzioni per i casi IPC e 5 per quelli generati, sullo stesso host;
-comprendono driver Python, traduzione e ricerca.
+\subsection{Comparison with Fast Downward}
+We compiled Fast Downward 26.6+ from commit
+\texttt{9b81c7e422fdf7be9f73b96e9a7a969c483dd5d4} in \texttt{release}
+mode (GCC/G++ 16.2.1). We measure both \texttt{astar(blind())}, an
+optimal reference without an informative heuristic, and the
+\texttt{seq-sat-lama-2011} alias, a satisficing heuristic planner.
+The \texttt{just install-fast-downward} command installs this revision
+to \texttt{\~{}/.local/bin}; problems are identical to those in
+Table~\ref{tab:ours}. FD times are medians of 20 runs for IPC cases and
+5 for generated cases, on the same host; they include the Python driver,
+translation, and search.
 
 \begin{table}[h]
 \centering
 \small
 \begin{tabular}{lrrr}
 \toprule
-Problema & Nostro indice (s) & FD blind (s) & FD LAMA (s) \\
+Problem & Our index (s) & FD blind (s) & FD LAMA (s) \\
 \midrule
 Blocks 4-0, IPC 2000 & 0.002644 & 0.1324 & 0.1539 \\
 Gripper 1, IPC 1998 & 0.013155 & 0.1267 & 0.1636 \\
-Gripper 7, generato & 0.440760 & 0.1408 & 0.3196 \\
-Gripper 8, generato & 1.262869 & 0.1402 & 0.6415 \\
+Gripper 7, generated & 0.440760 & 0.1408 & 0.3196 \\
+Gripper 8, generated & 1.262869 & 0.1402 & 0.6415 \\
 \bottomrule
 \end{tabular}
-\caption{Tempo mediano di processo completo sullo stesso host.
-Fast Downward (FD) usa due configurazioni diverse.}
+\caption{Median full-process runtime on the same host.
+Fast Downward (FD) uses two different configurations.}
 \label{tab:fd}
 \end{table}
 
-FD trova piani della stessa lunghezza in tutti i casi; LAMA non offre
-per\`o garanzia di ottimalit\`a generale. Su Gripper 8 FD blind \`e
-circa 9 volte pi\`u rapido dell'indice nel tempo totale; LAMA circa 2
-volte. Sui due casi IPC piccoli il nostro eseguibile ha minor latenza
-di processo, ma avvio e traduzione dominano FD: per Gripper 1 la sua
-ricerca blind dura solo 0,000521 s, contro 0,1267 s di processo
-completo. Il confronto non prova superiorit\`a generale su tali casi.
-Con blind, FD espande 11\,743 stati per Gripper 8, contro 11\,773 della
-nostra ricerca. Le due configurazioni FD non esauriscono le sue
-opzioni di ricerca.
+FD finds plans of the same length in every case; LAMA does not provide
+a general optimality guarantee. On Gripper 8, FD blind is about 9 times
+faster than our index in total runtime; LAMA is about 2 times faster.
+Our executable has lower process latency on the two small IPC cases, but
+startup and translation dominate FD: on Gripper 1, its blind search
+takes only 0.000521 s, compared with 0.1267 s for the full process. This
+comparison does not establish general superiority on these cases. With
+blind, FD expands 11\,743 states on Gripper 8, compared with 11\,773 in
+our search. These two FD configurations do not cover all its search
+options.
 
-\section{Limiti e conclusione}
-La valutazione riguarda due domini e pochi problemi, su una sola
-macchina. Le istanze Gripper grandi sono generate; non sostituiscono
-una suite IPC completa o un confronto di copertura entro timeout.
-Il planner continua a generare tutte le combinazioni di parametri
-prima della ricerca, perci\`o il problema del grounding descritto da
-Corr\^ea et al.~\cite{correa2020} rimane. Formule senza atomi
-positivi necessari usano la scansione completa. L'ottimizzazione offre
-un miglioramento locale, misurabile e semanticamente conservativo;
-non stabilisce competitivit\`a generale rispetto ai planner maturi.
+\section{Limitations and Conclusion}
+The evaluation covers two domains and a few problems on one machine.
+The larger Gripper instances are generated; they do not replace a full IPC
+suite or a timeout-based coverage comparison. The planner still generates
+all parameter combinations before search, so the grounding problem
+described by Corr\^ea et al.~\cite{correa2020} remains. Formulas without
+necessary positive atoms use a full scan. The optimization offers a local,
+measurable, and semantically conservative improvement; it does not
+establish general competitiveness against mature planners.
 
 \begin{thebibliography}{9}
 \bibitem{correa2020}
-A.~B. Corr\^ea, F. Pommerening, M. Helmert e G. Franc\`es,
-``Lifted Successor Generation Using Query Optimization Techniques,''
+A.~B. Corr\^ea, F. Pommerening, M. Helmert, and G. Franc\`es,
+"Lifted Successor Generation Using Query Optimization Techniques,"
 \emph{ICAPS}, vol. 30, pp. 80--89, 2020.
 \url{https://doi.org/10.1609/icaps.v30i1.6648}.
 \bibitem{correa2021}
-A.~B. Corr\^ea, G. Franc\`es, F. Pommerening e M. Helmert,
-``Delete-Relaxation Heuristics for Lifted Classical Planning,''
+A.~B. Corr\^ea, G. Franc\`es, F. Pommerening, and M. Helmert,
+"Delete-Relaxation Heuristics for Lifted Classical Planning,"
 \emph{ICAPS}, vol. 31, pp. 94--102, 2021.
 \url{https://doi.org/10.1609/icaps.v31i1.15951}.
 \bibitem{correa2022}
-A.~B. Corr\^ea, F. Pommerening, M. Helmert e G. Franc\`es,
-``The FF Heuristic for Lifted Classical Planning,''
+A.~B. Corr\^ea, F. Pommerening, M. Helmert, and G. Franc\`es,
+"The FF Heuristic for Lifted Classical Planning,"
 \emph{AAAI}, vol. 36, pp. 9716--9723, 2022.
 \url{https://doi.org/10.1609/aaai.v36i9.21206}.
 \bibitem{helmert2006}
-M. Helmert, ``The Fast Downward Planning System,''
+M. Helmert, "The Fast Downward Planning System,"
 \emph{Journal of Artificial Intelligence Research}, vol. 26,
 pp. 191--246, 2006. \url{https://doi.org/10.1613/jair.1705}.
 \bibitem{pddlinstances}
