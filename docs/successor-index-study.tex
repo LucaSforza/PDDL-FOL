@@ -188,7 +188,7 @@ and replays a solution before returning it.
 
 \subsection{Additional Experiments}
 We compare three configurations: indexed BFS at commit \texttt{82f6524}, and
-BFS/A* in the revision that integrates the \texttt{Agent} submodule. The
+BFS/A* at the pre-lift Agent integration commit \texttt{ee51799}. The
 synthetic benchmark \texttt{benchmarks/independent-inspections-12.fol} has 12
 independent goals, each achieved by one \texttt{inspect} action; it is not an
 IPC instance. We use the same Gripper domain from revision \texttt{cf19edf7}
@@ -220,6 +220,11 @@ is the indexed version before Agent integration; the other columns use the
 same executable.}
 \label{tab:heuristic}
 \end{table}
+
+These measurements describe the pre-lift revision. The later lifted
+successor implementation is evaluated separately in
+\path{docs/lifted-visitall-study.tex}; the two data sets must not be
+combined as if they came from one executable.
 
 The independent inspections favor the goal-cover bound: $h_{\max}$ sees a
 one-step relaxed cost for each goal, while $h_{\mathrm{cover}}$ captures the

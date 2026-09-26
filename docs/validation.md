@@ -13,7 +13,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --manifest-path vendor/agent/Cargo.toml
 ```
 
-All 38 root-crate tests pass: 14 unit tests, 4 CLI tests, 4 robustness tests,
+All 42 root-crate tests pass: 18 unit tests, 4 CLI tests, 4 robustness tests,
 15 semantic integration tests, and 1 executable rustdoc. Agent's crate tests
 are run separately as well. CLI tests cover both search choices, the A* default,
 argument errors, unknown files, and both search limits. Documentation builds

@@ -123,8 +123,8 @@ search states, after positive conjunctive filtering and before full formula
 evaluation. Other precondition forms use bounded Cartesian fallback.
 All search algorithms use this lifted candidate contract. A* uses the
 goal-cover bound for positive conjunctive ground goals. It may combine this
-with delete-relaxed `h_max` only when the full typed Cartesian grounding is
-small enough to materialize safely without changing the candidate budget.
+with delete-relaxed `h_max` only when the full typed Cartesian grounding has
+at most 10,000 actions, without changing the candidate budget.
 For other goals, the heuristic is zero. A* must preserve optimality and
 not discard valid states when a heuristic estimate cannot be computed.
 Grounding-limit errors have kind `ErrorKind::GroundingLimit`; all other model
