@@ -1,0 +1,194 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,booktabs,float,geometry,graphicx,hyperref}
+\geometry{margin=1.6cm}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+
+\title{Exact Product Navigation for Hard-to-Ground PDDL VisitAll}
+\author{Technical Report on \texttt{pddl\_fol}}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The lifted \texttt{folplan} planner can avoid Cartesian action grounding, but
+its generic goal-cover estimate provides little direction on VisitAll tasks
+with few target tuples. We identify a structural fragment in which movement
+changes one coordinate of a location tuple along a static neighbor graph and
+marks each reached tuple as visited. For up to three remaining targets, we
+derive exact directed distances and construct a shortest plan from the best
+target order. The optimizer recognizes action structure rather than domain
+names and replays every constructed plan against the original PDDL semantics.
+On 54 preregistered hard-to-ground VisitAll instances, it solves all 54 within
+15 seconds and 1 GiB; Powerlifted and Tyr each solve 35. On their 35 shared
+solved instances, the median paired full-process speedups are 87.5 and 16.7,
+respectively. These results establish competitiveness on this narrow
+structural fragment, not on general PDDL planning.
+\end{abstract}
+
+\section{Motivation}
+The hard-to-ground (HTG) VisitAll corpus has 180 instances in 18 families:
+three, four, or five location coordinates; close or far target placement;
+and one to three goal tuples~\cite{htg,wichlacz2022}. The action schemas have
+one parameter for every old coordinate and one for the new coordinate, so
+complete grounding grows rapidly with object count. Lifted joins already
+avoid this grounding cost in \texttt{folplan}~\cite{previous}.
+
+Our earlier eight-instance study used only the five-dimensional close,
+single-target family~\cite{previous}. Every unsolved goal in that selection
+has exactly one missing \texttt{visited} atom. Consequently, the goal-cover
+heuristic is one in every non-goal state; the full Cartesian action universe
+also exceeds the threshold for delete-relaxed $h_{\max}$. On \texttt{p9},
+the target differs from the initial position by one, seven, and five edges
+in three coordinates, respectively. Its exact travel distance is 13, while
+the generic estimate remains one. The previous A* run reached the 1 GiB
+memory limit on this task.
+
+\section{Recognized fragment and exact reduction}
+Recognition examines the validated task's predicate and action structure.
+Exactly one dynamic location tuple is true initially. Each action requires
+that tuple and one static directed neighbor fact, changes exactly one tuple
+coordinate, deletes the old location, adds the new location, and adds a
+\texttt{visited} fact for the new location. No action deletes \texttt{visited},
+and the goal is a positive conjunction of at most three ground
+\texttt{visited} tuples not already true. Task, predicate, parameter, and
+action names play no role. Tasks outside this fragment use generic A*.
+
+Let $q=(q_1,\ldots,q_m)$ be a location and let $d_N(u,v)$ be shortest-path
+distance in the directed static neighbor graph. Independent coordinate moves
+give an exact location distance
+\begin{equation}
+  d(q,r)=\sum_{j=1}^{m}d_N(q_j,r_j).
+  \label{eq:product-distance}
+\end{equation}
+An unreachable coordinate pair makes the corresponding distance infinite.
+Let $R$ contain remaining target tuples and let $q_0$ be the initial
+location. The optimal route cost is
+\begin{equation}
+  C^*=\min_{\pi\in\mathrm{Perm}(R)}
+       \sum_{i=0}^{|R|-1} d(q_i,q_{i+1}),
+  \quad q_{i+1}=\pi_{i+1}.
+  \label{eq:route}
+\end{equation}
+For at most three targets, this considers at most six orders. Any valid plan
+has an order in which it first reaches the targets; each segment costs at
+least its distance in Equation~\ref{eq:product-distance}. Conversely,
+concatenating shortest coordinate paths for a minimizing order visits every
+target at that cost, possibly visiting some targets earlier along a segment.
+Thus Equation~\ref{eq:route} is exact. The constructed ground actions are
+replayed with the ordinary PDDL evaluator before the plan is returned.
+Explicit BFS retains its generic graph-search implementation.
+
+\section{Evaluation protocol}
+We preregister \texttt{p0}, \texttt{p5}, and \texttt{p9} from each of the 18
+official VisitAll families at corpus commit \texttt{c5670ed2}: 54 tasks,
+including easy, middle, and deep instances in every dimension, distance,
+and goal-count group. The independent metric oracle computes expected
+optimal lengths for all 180 official tasks; the selected tasks are checked
+against that oracle and the returned plans against \texttt{folplan}'s exact
+replay.
+
+We compare release builds of \texttt{folplan}, Powerlifted's
+\texttt{alt-bfws1} with FF and Yannakakis joins~\cite{powerlifted}, and
+Tyr's single-worker lifted greedy best-first search with RPG-FF~\cite{tyr}.
+Each process has a 1 GiB address-space cap and a 15-second wall timeout.
+Solved cases receive three interleaved runs; failures are attempted once.
+Reported time includes process startup, parsing or translation, and search.
+Plan lengths and outcome categories accompany times. Compiler flags, exact
+revisions, executable hashes, raw rows, and commands are archived beside
+the benchmark harness.
+Primary endpoints are task coverage and paired median full-process latency
+against Tyr; Powerlifted gives a second lifted reference. We report the
+number of tasks won by each solver as well as the distribution of paired
+runtime ratios, retaining failed tasks in the coverage denominator.
+
+\section{Results}
+Table~\ref{tab:coverage} gives complete coverage and failure categories. All
+successful solver--task cells completed three runs; no cell had a later-run
+failure. Powerlifted's 16 memory-limit results are exit-code 22 with explicit
+memory-limit messages in the logs; its other three failures and Tyr's 19
+failures are 15-second process timeouts. The specialized planner's measured
+time ranges from 0.0027 to 0.0089 seconds across tasks, including parsing and
+plan replay.
+
+\begin{table}[H]
+\centering
+\caption{Coverage under 15 seconds and 1 GiB per process. Median time uses
+only tasks solved by that planner; paired speedups below use identical tasks.}
+\label{tab:coverage}
+\begin{tabular}{lrrrrrr}
+\toprule
+Planner & Solved & Close & Far & Timeout & Memory & Median time (s) \\
+\midrule
+\texttt{folplan} A* & 54/54 & 27/27 & 27/27 & 0 & 0 & 0.0037 \\
+Powerlifted & 35/54 & 26/27 & 9/27 & 3 & 16 & 0.2746 \\
+Tyr & 35/54 & 26/27 & 9/27 & 19 & 0 & 0.0588 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On all 35 tasks solved by both \texttt{folplan} and each comparator,
+\texttt{folplan} has lower median full-process wall time. The median paired
+ratio $t_{\mathrm{Powerlifted}}/t_{\mathrm{folplan}}$ is 87.5
+(interquartile range 41.4--530.8); the corresponding Tyr ratio is 16.7
+(8.7--117.5). These ratios include startup and translation costs, so they
+measure end-to-end use rather than search alone. Figure~\ref{fig:competition}
+shows the complete coverage/time curve and stratified coverage. A larger
+per-instance status chart accompanies the archived data.
+
+\begin{figure}[H]
+\centering
+\includegraphics[height=0.78\textheight,width=\linewidth,keepaspectratio]{docs/figures/product-visitall-compact.png}
+\caption{Performance on preregistered VisitAll instances. Cactus curves sort
+each planner's solved tasks by its median full-process time; shorter curves
+mean lower coverage. Each dimension group contains 18 tasks.}
+\label{fig:competition}
+\end{figure}
+
+The specialized planner's returned length matches the archived independent
+route-length oracle on all 54 measured tasks; every returned plan also passes
+the planner's exact PDDL replay. Powerlifted and Tyr each return lengths equal
+to that oracle on 31 of their 35 solved tasks. Their remaining four lengths
+are longer; their plans were not independently replayed. The previously
+memory-limited five-dimensional close \texttt{g1/p9} case now returns the
+13-step optimal plan in 0.0036 seconds median full-process time.
+
+The harness, preregistered input hashes, all 410 attempt rows, 162 task-level
+summaries, failure classifications, executable hashes, and the 180-task
+oracle are archived in \path{benchmarks/results/product-visitall/}. Its
+commands and pinned solver revisions are recorded in \path{metadata.json}
+and \path{raw.csv}; the plotting script regenerates both figures from the
+archived CSVs.
+
+\section{Scope}
+This experiment tests a deliberately narrow PDDL fragment with at most
+three remaining visit goals. The structural proof and replay check are
+essential: applying the route formula to actions with extra preconditions,
+diagonal or teleport moves, or non-monotone visits would be unsound. Full
+process latency includes different startup and translation costs for the
+three implementations. The 54 selected tasks are a fixed subset of the
+180-instance VisitAll corpus, not a measurement of general planner quality.
+
+\small
+\begin{thebibliography}{9}
+\raggedright
+\bibitem{htg} A.~B. Corr\^ea, \emph{htg-domains}, corpus commit
+\texttt{c5670ed2}.
+\url{https://github.com/abcorrea/htg-domains/tree/c5670ed289f58d3d6e104d7b06f311cf2f87b354}.
+\bibitem{wichlacz2022} J. Wichlacz, D. H\"oller, and J. Hoffmann,
+``Landmark Heuristics for Lifted Classical Planning,'' IJCAI, 2022.
+\url{https://www.ijcai.org/proceedings/2022/0647.pdf}.
+\bibitem{powerlifted} A.~B. Corr\^ea and J. Seipp,
+``Best-First Width Search for Lifted Classical Planning,'' ICAPS, 2022.
+\url{https://doi.org/10.1609/icaps.v32i1.19780}.
+\bibitem{tyr} D. Drexler, O. Joergensen, and J. Seipp,
+``Parallel Lifted Planning via Semi-Naive Datalog Evaluation,'' arXiv:2605.07584,
+2026. \url{https://arxiv.org/abs/2605.07584}.
+\bibitem{previous} \texttt{pddl\_fol},
+``Lifted Successor Joins and Admissible A* in a First-Order PDDL Planner,''
+technical report, 2026. \path{docs/lifted-visitall-study.tex}.
+\end{thebibliography}
+\end{document}
