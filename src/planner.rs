@@ -35,6 +35,11 @@ pub fn solve_with_algorithm(
             explored: 1,
         }));
     }
+    if algorithm == crate::model::SearchAlgorithm::AStar {
+        if let Some(outcome) = solve_product_navigation(task, limits)? {
+            return Ok(outcome);
+        }
+    }
     let goal_atoms = if algorithm == crate::model::SearchAlgorithm::AStar {
         positive_ground_goal(&task.goal)
     } else {
@@ -117,6 +122,508 @@ pub fn solve_with_algorithm(
             Ok(SearchOutcome::LimitReached { explored: expanded })
         }
     }
+}
+
+const MAX_PRODUCT_TARGETS: usize = 3;
+
+#[derive(Clone)]
+struct NavigationAction {
+    schema_index: usize,
+    axis: usize,
+}
+
+struct ProductNavigation {
+    start: Vec<String>,
+    goals: Vec<Vec<String>>,
+    initially_visited: BTreeSet<Vec<String>>,
+    neighbors: Vec<(String, String)>,
+    actions: Vec<NavigationAction>,
+}
+
+fn solve_product_navigation(
+    task: &Task,
+    limits: SearchLimits,
+) -> Result<Option<SearchOutcome>, Error> {
+    let Some(model) = recognize_product_navigation(task) else {
+        return Ok(None);
+    };
+    let targets = model
+        .goals
+        .iter()
+        .filter(|goal| !model.initially_visited.contains(*goal))
+        .cloned()
+        .collect::<Vec<_>>();
+    if targets.len() > MAX_PRODUCT_TARGETS {
+        return Ok(None);
+    }
+
+    let mut order = (0..targets.len()).collect::<Vec<_>>();
+    let mut best: Option<(usize, Vec<usize>)> = None;
+    visit_orders(
+        &model,
+        &targets,
+        &mut order,
+        0,
+        0,
+        &mut Vec::new(),
+        &mut best,
+    );
+    let Some((_, target_order)) = best else {
+        return Ok(Some(SearchOutcome::Unsolvable { explored: 1 }));
+    };
+
+    let mut current = model.start.clone();
+    let mut steps = Vec::new();
+    for target_index in target_order {
+        let target = &targets[target_index];
+        for axis in 0..current.len() {
+            let path = coordinate_path(&model.neighbors, &current[axis], &target[axis]);
+            let Some(path) = path else {
+                return Err(Error::new("product-navigation route reconstruction failed"));
+            };
+            for next in path.into_iter().skip(1) {
+                let action = model
+                    .actions
+                    .iter()
+                    .filter(|action| action.axis == axis)
+                    .filter_map(|action| {
+                        let ground =
+                            instantiate_navigation_action(task, action, &current, &next, axis)
+                                .ok()?;
+                        checked_action_environment(
+                            task,
+                            &task.actions[action.schema_index],
+                            &ground,
+                        )
+                        .ok()?;
+                        Some(ground)
+                    })
+                    .min();
+                let Some(action) = action else {
+                    return Ok(None);
+                };
+                current[axis] = next;
+                steps.push(action);
+            }
+        }
+    }
+
+    let distinct_actions = steps.iter().collect::<BTreeSet<_>>().len();
+    if distinct_actions > limits.max_ground_actions {
+        return Err(Error::grounding_limit(format!(
+            "ground action limit ({}) exceeded",
+            limits.max_ground_actions
+        )));
+    }
+    let explored = steps.len().saturating_add(1);
+    if explored > limits.max_states {
+        return Ok(Some(SearchOutcome::LimitReached {
+            explored: limits.max_states,
+        }));
+    }
+    let final_state = replay(task, &steps)?;
+    if !eval_with_bindings(task, &final_state, &task.goal, &mut HashMap::new())? {
+        return Err(Error::new(
+            "product-navigation plan replay did not satisfy the goal",
+        ));
+    }
+    Ok(Some(SearchOutcome::Solved(Plan {
+        steps,
+        final_state,
+        explored,
+    })))
+}
+
+fn visit_orders(
+    model: &ProductNavigation,
+    targets: &[Vec<String>],
+    permutation: &mut [usize],
+    index: usize,
+    cost: usize,
+    route: &mut Vec<usize>,
+    best: &mut Option<(usize, Vec<usize>)>,
+) {
+    if index == permutation.len() {
+        let candidate = (cost, route.clone());
+        if best.as_ref().is_none_or(|old| candidate < *old) {
+            *best = Some(candidate);
+        }
+        return;
+    }
+    for next in index..permutation.len() {
+        permutation.swap(index, next);
+        let from = route
+            .last()
+            .map(|last| &targets[*last])
+            .unwrap_or(&model.start);
+        let target_index = permutation[index];
+        if let Some(distance) = product_distance(from, &targets[target_index], &model.neighbors) {
+            route.push(target_index);
+            visit_orders(
+                model,
+                targets,
+                permutation,
+                index + 1,
+                cost.saturating_add(distance),
+                route,
+                best,
+            );
+            route.pop();
+        }
+        permutation.swap(index, next);
+    }
+}
+
+fn product_distance(
+    from: &[String],
+    to: &[String],
+    neighbors: &[(String, String)],
+) -> Option<usize> {
+    from.iter().zip(to).try_fold(0usize, |sum, (from, to)| {
+        coordinate_distance(neighbors, from, to).map(|distance| sum + distance)
+    })
+}
+
+fn coordinate_distance(neighbors: &[(String, String)], from: &str, to: &str) -> Option<usize> {
+    if from == to {
+        return Some(0);
+    }
+    let mut distances = BTreeMap::from([(from.to_owned(), 0usize)]);
+    let mut queue = std::collections::VecDeque::from([from.to_owned()]);
+    while let Some(current) = queue.pop_front() {
+        let next_distance = distances[&current] + 1;
+        for (_, target) in neighbors.iter().filter(|(source, _)| source == &current) {
+            if target == to {
+                return Some(next_distance);
+            }
+            if !distances.contains_key(target) {
+                distances.insert(target.clone(), next_distance);
+                queue.push_back(target.clone());
+            }
+        }
+    }
+    None
+}
+
+fn coordinate_path(neighbors: &[(String, String)], from: &str, to: &str) -> Option<Vec<String>> {
+    let mut parents = BTreeMap::from([(from.to_owned(), None::<String>)]);
+    let mut queue = std::collections::VecDeque::from([from.to_owned()]);
+    while let Some(current) = queue.pop_front() {
+        if current == to {
+            let mut path = vec![to.to_owned()];
+            let mut node = to.to_owned();
+            while let Some(Some(parent)) = parents.get(&node) {
+                path.push(parent.clone());
+                node = parent.clone();
+            }
+            path.reverse();
+            return Some(path);
+        }
+        for (_, target) in neighbors.iter().filter(|(source, _)| source == &current) {
+            if !parents.contains_key(target) {
+                parents.insert(target.clone(), Some(current.clone()));
+                queue.push_back(target.clone());
+            }
+        }
+    }
+    None
+}
+
+fn recognize_product_navigation(task: &Task) -> Option<ProductNavigation> {
+    let goals = positive_ground_goal(&task.goal)?;
+    let mut location_role: Option<String> = None;
+    let mut visited_role: Option<String> = None;
+    let mut neighbor_role: Option<String> = None;
+    let mut actions = Vec::new();
+    let mut dimensions = None;
+
+    for (schema_index, action) in task.actions.iter().enumerate() {
+        let preconditions = match &action.precondition {
+            Formula::And(parts) => parts.as_slice(),
+            Formula::Atom(_) => std::slice::from_ref(&action.precondition),
+            _ => return None,
+        };
+        let atoms = preconditions
+            .iter()
+            .map(|formula| match formula {
+                Formula::Atom(atom) => Some(atom),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        if atoms.len() != 2 || action.add.len() != 2 || action.delete.len() != 1 {
+            return None;
+        }
+        let deleted = &action.delete[0];
+        let location_pre = atoms
+            .iter()
+            .find(|atom| atom.predicate == deleted.predicate && atom.terms == deleted.terms)?;
+        let location_adds = action
+            .add
+            .iter()
+            .filter(|atom| atom.predicate == deleted.predicate)
+            .collect::<Vec<_>>();
+        if location_adds.len() != 1 || location_pre.terms.is_empty() {
+            return None;
+        }
+        let location_add = location_adds[0];
+        let size = location_pre.terms.len();
+        if location_pre
+            .terms
+            .iter()
+            .chain(&location_add.terms)
+            .any(|term| !matches!(term, Term::Variable(_)))
+            || dimensions.is_some_and(|old| old != size)
+        {
+            return None;
+        }
+        let old_variables = location_pre
+            .terms
+            .iter()
+            .filter_map(|term| match term {
+                Term::Variable(name) => Some(name),
+                Term::Constant(_) => None,
+            })
+            .collect::<BTreeSet<_>>();
+        if old_variables.len() != size {
+            return None;
+        }
+        dimensions = Some(size);
+        let visited_adds = action
+            .add
+            .iter()
+            .filter(|atom| atom.predicate != deleted.predicate)
+            .collect::<Vec<_>>();
+        if visited_adds.len() != 1 || visited_adds[0].terms != location_add.terms {
+            return None;
+        }
+        if location_role
+            .as_ref()
+            .is_some_and(|role| role != &deleted.predicate)
+            || visited_role
+                .as_ref()
+                .is_some_and(|role| role != &visited_adds[0].predicate)
+        {
+            return None;
+        }
+        location_role = Some(deleted.predicate.clone());
+        visited_role = Some(visited_adds[0].predicate.clone());
+        let neighbor = atoms
+            .iter()
+            .find(|atom| atom.predicate != deleted.predicate)?;
+        if neighbor.terms.len() != 2
+            || neighbor_role
+                .as_ref()
+                .is_some_and(|role| role != &neighbor.predicate)
+        {
+            return None;
+        }
+        neighbor_role = Some(neighbor.predicate.clone());
+
+        let axis = (0..size).find(|&axis| {
+            location_pre
+                .terms
+                .iter()
+                .zip(&location_add.terms)
+                .enumerate()
+                .all(|(index, (old, new))| {
+                    if index == axis {
+                        old != new
+                    } else {
+                        old == new
+                    }
+                })
+        })?;
+        let (from, to) = match (&neighbor.terms[0], &neighbor.terms[1]) {
+            (Term::Variable(from), Term::Variable(to))
+                if location_pre.terms[axis] == Term::Variable(from.clone())
+                    && location_add.terms[axis] == Term::Variable(to.clone()) =>
+            {
+                (from.clone(), to.clone())
+            }
+            _ => return None,
+        };
+        let mut used = BTreeSet::new();
+        collect_variables(location_pre, &mut used);
+        collect_variables(location_add, &mut used);
+        collect_variables(neighbor, &mut used);
+        if action
+            .parameters
+            .iter()
+            .any(|parameter| !used.contains(&parameter.name))
+            || used.len() != action.parameters.len()
+        {
+            return None;
+        }
+        if from == to {
+            return None;
+        }
+        actions.push(NavigationAction { schema_index, axis });
+    }
+
+    let location_predicate = location_role?;
+    let visited_predicate = visited_role?;
+    let neighbor_predicate = neighbor_role?;
+    if location_predicate == visited_predicate
+        || location_predicate == neighbor_predicate
+        || visited_predicate == neighbor_predicate
+    {
+        return None;
+    }
+    let dimensions = dimensions?;
+    if goals
+        .iter()
+        .any(|goal| goal.predicate != visited_predicate || goal.arguments.len() != dimensions)
+    {
+        return None;
+    }
+    let location_facts = task
+        .initial
+        .iter()
+        .filter(|fact| fact.predicate == location_predicate)
+        .collect::<Vec<_>>();
+    if location_facts.len() != 1 || location_facts[0].arguments.len() != dimensions {
+        return None;
+    }
+    let start = location_facts[0].arguments.clone();
+    let initially_visited: BTreeSet<Vec<String>> = task
+        .initial
+        .iter()
+        .filter(|fact| fact.predicate == visited_predicate)
+        .map(|fact| fact.arguments.clone())
+        .collect();
+    if initially_visited
+        .iter()
+        .any(|tuple| tuple.len() != dimensions)
+    {
+        return None;
+    }
+    let neighbors: Vec<(String, String)> = task
+        .initial
+        .iter()
+        .filter(|fact| fact.predicate == neighbor_predicate && fact.arguments.len() == 2)
+        .map(|fact| (fact.arguments[0].clone(), fact.arguments[1].clone()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if neighbors.is_empty() {
+        return None;
+    }
+    if neighbors.iter().any(|(from, to)| from == to) {
+        return None;
+    }
+    if (0..dimensions).any(|axis| !actions.iter().any(|action| action.axis == axis)) {
+        return None;
+    }
+    let location_types = task
+        .predicates
+        .iter()
+        .find(|predicate| predicate.name == location_predicate)?
+        .parameters
+        .clone();
+    let visited_types = task
+        .predicates
+        .iter()
+        .find(|predicate| predicate.name == visited_predicate)?
+        .parameters
+        .clone();
+    let neighbor_types = task
+        .predicates
+        .iter()
+        .find(|predicate| predicate.name == neighbor_predicate)?
+        .parameters
+        .clone();
+    if location_types.len() != dimensions
+        || visited_types != location_types
+        || neighbor_types.len() != 2
+        || (0..dimensions).any(|axis| {
+            location_types[axis] != neighbor_types[0] || location_types[axis] != neighbor_types[1]
+        })
+    {
+        return None;
+    }
+    if goals
+        .iter()
+        .any(|goal| goal.arguments == start && !initially_visited.contains(&start))
+    {
+        return None;
+    }
+    Some(ProductNavigation {
+        start,
+        goals: goals.into_iter().map(|goal| goal.arguments).collect(),
+        initially_visited,
+        neighbors,
+        actions,
+    })
+}
+
+fn collect_variables(atom: &Atom, names: &mut BTreeSet<String>) {
+    names.extend(atom.terms.iter().filter_map(|term| match term {
+        Term::Variable(name) => Some(name.clone()),
+        Term::Constant(_) => None,
+    }));
+}
+
+fn instantiate_navigation_action(
+    task: &Task,
+    action: &NavigationAction,
+    current: &[String],
+    next: &str,
+    axis: usize,
+) -> Result<GroundAction, Error> {
+    let schema = &task.actions[action.schema_index];
+    let mut binding = HashMap::<String, String>::new();
+    let old_location = &schema.delete[0];
+    let new_location = schema
+        .add
+        .iter()
+        .find(|atom| atom.predicate == old_location.predicate)
+        .ok_or_else(|| Error::new("missing product-navigation location effect"))?;
+    let neighbor = match &schema.precondition {
+        Formula::Atom(atom) => vec![atom],
+        Formula::And(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                Formula::Atom(atom) => Some(atom),
+                _ => None,
+            })
+            .collect(),
+        _ => return Err(Error::new("invalid product-navigation precondition")),
+    }
+    .into_iter()
+    .find(|atom| atom.predicate != old_location.predicate)
+    .ok_or_else(|| Error::new("missing product-navigation neighbor condition"))?;
+    let mut bind_atom = |atom: &Atom, values: &[String]| -> Result<(), Error> {
+        if atom.terms.len() != values.len() {
+            return Err(Error::new("product-navigation tuple arity mismatch"));
+        }
+        for (term, value) in atom.terms.iter().zip(values) {
+            if let Term::Variable(name) = term {
+                if binding.get(name).is_some_and(|old| old != value) {
+                    return Err(Error::new("inconsistent product-navigation binding"));
+                }
+                binding.insert(name.clone(), value.clone());
+            }
+        }
+        Ok(())
+    };
+    bind_atom(old_location, current)?;
+    let mut destination = current.to_vec();
+    destination[axis] = next.to_owned();
+    bind_atom(new_location, &destination)?;
+    bind_atom(neighbor, &[current[axis].clone(), next.to_owned()])?;
+    for parameter in &schema.parameters {
+        if !binding.contains_key(&parameter.name) {
+            return Err(Error::new("unbound product-navigation parameter"));
+        }
+    }
+    Ok(GroundAction {
+        name: schema.name.clone(),
+        arguments: schema
+            .parameters
+            .iter()
+            .map(|parameter| binding[&parameter.name].clone())
+            .collect(),
+    })
 }
 
 #[derive(Clone)]
@@ -828,6 +1335,123 @@ mod tests {
         }
     }
 
+    fn product_visit_task(goal_tuples: &[(&str, &str)], directed: bool) -> Task {
+        let positions = ["p0", "p1", "p2"];
+        let mut actions = Vec::new();
+        for axis in 0..2 {
+            let from_names = ["x0_from", "x1_from"];
+            let to_name = if axis == 0 { "x0_to" } else { "x1_to" };
+            let old_terms = from_names
+                .iter()
+                .map(|name| Term::Variable((*name).into()))
+                .collect::<Vec<_>>();
+            let mut new_terms = old_terms.clone();
+            new_terms[axis] = Term::Variable(to_name.into());
+            let neighbor = Atom {
+                predicate: "neighbor".into(),
+                terms: vec![
+                    Term::Variable(from_names[axis].into()),
+                    Term::Variable(to_name.into()),
+                ],
+            };
+            actions.push(Action {
+                name: format!("move-{axis}"),
+                parameters: from_names
+                    .iter()
+                    .map(|name| Binding {
+                        name: (*name).into(),
+                        ty: "pos".into(),
+                    })
+                    .chain(std::iter::once(Binding {
+                        name: to_name.into(),
+                        ty: "pos".into(),
+                    }))
+                    .collect(),
+                precondition: Formula::And(vec![
+                    Formula::Atom(Atom {
+                        predicate: "at".into(),
+                        terms: old_terms.clone(),
+                    }),
+                    Formula::Atom(neighbor),
+                ]),
+                add: vec![
+                    Atom {
+                        predicate: "at".into(),
+                        terms: new_terms.clone(),
+                    },
+                    Atom {
+                        predicate: "visited".into(),
+                        terms: new_terms,
+                    },
+                ],
+                delete: vec![Atom {
+                    predicate: "at".into(),
+                    terms: old_terms,
+                }],
+            });
+        }
+        let mut initial = BTreeSet::from([
+            GroundAtom {
+                predicate: "at".into(),
+                arguments: vec!["p0".into(), "p0".into()],
+            },
+            GroundAtom {
+                predicate: "visited".into(),
+                arguments: vec!["p0".into(), "p0".into()],
+            },
+        ]);
+        for (left, right) in positions.iter().zip(positions.iter().skip(1)) {
+            initial.insert(GroundAtom {
+                predicate: "neighbor".into(),
+                arguments: vec![(*left).into(), (*right).into()],
+            });
+            if !directed {
+                initial.insert(GroundAtom {
+                    predicate: "neighbor".into(),
+                    arguments: vec![(*right).into(), (*left).into()],
+                });
+            }
+        }
+        Task {
+            name: "product-visit".into(),
+            types: vec!["pos".into()],
+            objects: positions
+                .iter()
+                .map(|name| Binding {
+                    name: (*name).into(),
+                    ty: "pos".into(),
+                })
+                .collect(),
+            predicates: vec![
+                Predicate {
+                    name: "at".into(),
+                    parameters: vec!["pos".into(); 2],
+                },
+                Predicate {
+                    name: "visited".into(),
+                    parameters: vec!["pos".into(); 2],
+                },
+                Predicate {
+                    name: "neighbor".into(),
+                    parameters: vec!["pos".into(); 2],
+                },
+            ],
+            actions,
+            initial,
+            goal: Formula::And(
+                goal_tuples
+                    .iter()
+                    .map(|(x, y)| {
+                        Formula::Atom(Atom {
+                            predicate: "visited".into(),
+                            terms: vec![Term::Constant((*x).into()), Term::Constant((*y).into())],
+                        })
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
     #[test]
     fn bfs_finds_minimal_plan_and_replay_matches_it() {
         let task = travel_task();
@@ -839,6 +1463,151 @@ mod tests {
         assert_eq!(plan.steps[0].to_string(), "move(a, c)");
         assert_eq!(replay(&task, &plan.steps).unwrap(), plan.final_state);
         assert_eq!(plan.situation(), "do(move(a, c), S0)");
+    }
+
+    #[test]
+    fn product_navigation_matches_bfs_for_one_to_three_targets() {
+        let targets = [
+            vec![("p2", "p0")],
+            vec![("p2", "p0"), ("p0", "p2")],
+            vec![("p2", "p0"), ("p0", "p2"), ("p2", "p2")],
+        ];
+        for goals in targets {
+            let task = product_visit_task(&goals, false);
+            assert!(recognize_product_navigation(&task).is_some());
+            let astar = solve_with_algorithm(
+                &task,
+                SearchLimits::default(),
+                crate::model::SearchAlgorithm::AStar,
+            )
+            .unwrap();
+            let bfs = solve_with_algorithm(
+                &task,
+                SearchLimits::default(),
+                crate::model::SearchAlgorithm::Bfs,
+            )
+            .unwrap();
+            let SearchOutcome::Solved(astar) = astar else {
+                panic!("expected optimized A* plan");
+            };
+            let SearchOutcome::Solved(bfs) = bfs else {
+                panic!("expected BFS plan");
+            };
+            assert_eq!(astar.steps.len(), bfs.steps.len());
+            assert_eq!(astar.explored, astar.steps.len() + 1);
+            assert_eq!(replay(&task, &astar.steps).unwrap(), astar.final_state);
+        }
+    }
+
+    #[test]
+    fn product_navigation_falls_back_above_three_remaining_targets() {
+        let task = product_visit_task(
+            &[("p2", "p0"), ("p0", "p2"), ("p2", "p2"), ("p1", "p1")],
+            false,
+        );
+        assert!(recognize_product_navigation(&task).is_some());
+        assert!(
+            solve_product_navigation(&task, SearchLimits::default())
+                .unwrap()
+                .is_none()
+        );
+        let astar = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::AStar,
+        )
+        .unwrap();
+        let bfs = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::Bfs,
+        )
+        .unwrap();
+        assert_eq!(
+            match astar {
+                SearchOutcome::Solved(plan) => plan.steps.len(),
+                other => panic!("expected generic A* plan, got {other:?}"),
+            },
+            match bfs {
+                SearchOutcome::Solved(plan) => plan.steps.len(),
+                other => panic!("expected BFS plan, got {other:?}"),
+            }
+        );
+    }
+
+    #[test]
+    fn product_navigation_respects_directed_unreachability() {
+        let mut task = product_visit_task(&[("p2", "p0")], true);
+        task.initial.remove(&GroundAtom {
+            predicate: "neighbor".into(),
+            arguments: vec!["p1".into(), "p2".into()],
+        });
+        let SearchOutcome::Unsolvable { explored } = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::AStar,
+        )
+        .unwrap() else {
+            panic!("directed unreachable target should be unsolvable");
+        };
+        assert_eq!(explored, 1);
+    }
+
+    #[test]
+    fn product_navigation_falls_back_when_action_has_extra_precondition() {
+        let mut task = product_visit_task(&[("p1", "p0")], false);
+        task.predicates.push(Predicate {
+            name: "permit".into(),
+            parameters: vec![],
+        });
+        task.initial.insert(GroundAtom {
+            predicate: "permit".into(),
+            arguments: vec![],
+        });
+        task.actions[0].precondition = Formula::And(vec![
+            task.actions[0].precondition.clone(),
+            Formula::Atom(Atom {
+                predicate: "permit".into(),
+                terms: vec![],
+            }),
+        ]);
+        assert!(recognize_product_navigation(&task).is_none());
+        let SearchOutcome::Solved(plan) = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::AStar,
+        )
+        .unwrap() else {
+            panic!("generic A* should solve the structurally unsupported task");
+        };
+        assert_eq!(plan.steps.len(), 1);
+    }
+
+    #[test]
+    fn product_navigation_enforces_trajectory_and_action_limits() {
+        let task = product_visit_task(&[("p1", "p0")], false);
+        assert_eq!(
+            solve_with_algorithm(
+                &task,
+                SearchLimits {
+                    max_states: 1,
+                    max_ground_actions: 10,
+                },
+                crate::model::SearchAlgorithm::AStar,
+            )
+            .unwrap(),
+            SearchOutcome::LimitReached { explored: 1 }
+        );
+        let error = solve_with_algorithm(
+            &task,
+            SearchLimits {
+                max_states: 10,
+                max_ground_actions: 0,
+            },
+            crate::model::SearchAlgorithm::AStar,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), crate::model::ErrorKind::GroundingLimit);
     }
 
     #[test]

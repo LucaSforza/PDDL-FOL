@@ -82,7 +82,9 @@ sequenceDiagram
 
 `model.rs`: data structures and `Error`; `logic.rs`: validation/evaluation;
 `planner.rs`: lifted candidate generation, Agent adapter, admissible heuristic,
-plan replay; `dsl.rs`: coordinate-aware infix DSL
+plan replay; an internal product-navigation optimizer recognizes and constructs
+shortest walks for the proven static-neighbor/monotone-visit fragment, then
+uses the same replay path; `dsl.rs`: coordinate-aware infix DSL
 lexer/parser; `parser.rs`: standard PDDL S-expression parser; `main.rs`: I/O and arguments; `lib.rs`: API
 and rustdoc.
 
@@ -127,6 +129,12 @@ with delete-relaxed `h_max` only when the full typed Cartesian grounding has
 at most 10,000 actions, without changing the candidate budget.
 For other goals, the heuristic is zero. A* must preserve optimality and
 not discard valid states when a heuristic estimate cannot be computed.
+The product-navigation optimizer is automatic and internal; it matches AST
+structure and static facts, never task names. It handles at most three remaining
+visited targets. If recognition is incomplete or the target cap is exceeded,
+generic A* retains all existing semantics. BFS remains an unoptimized
+reference. The optimizer must enforce the trajectory-state and distinct
+witness-action limits before returning a replay-verified plan.
 Grounding-limit errors have kind `ErrorKind::GroundingLimit`; all other model
 and input errors have kind `ErrorKind::InvalidInput`. DSL and PDDL names are
 ASCII case-insensitive and normalized to lowercase. No `unsafe`.

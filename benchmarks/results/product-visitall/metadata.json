@@ -1,0 +1,67 @@
+{
+  "protocol": "official HTG product-VisitAll families, cases p0/p5/p9; 3 interleaved successes or 1 attempt after first failure",
+  "created_utc": "2026-09-26T18:19:41.405589+00:00",
+  "host": "framework",
+  "platform": "Linux-7.2.5-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu_model": "AMD Ryzen 5 7640U w/ Radeon 760M Graphics",
+  "corpus_revision": "c5670ed289f58d3d6e104d7b06f311cf2f87b354",
+  "families": [
+    "3-dim-visitall-CLOSE-g1",
+    "3-dim-visitall-CLOSE-g2",
+    "3-dim-visitall-CLOSE-g3",
+    "3-dim-visitall-FAR-g1",
+    "3-dim-visitall-FAR-g2",
+    "3-dim-visitall-FAR-g3",
+    "4-dim-visitall-CLOSE-g1",
+    "4-dim-visitall-CLOSE-g2",
+    "4-dim-visitall-CLOSE-g3",
+    "4-dim-visitall-FAR-g1",
+    "4-dim-visitall-FAR-g2",
+    "4-dim-visitall-FAR-g3",
+    "5-dim-visitall-CLOSE-g1",
+    "5-dim-visitall-CLOSE-g2",
+    "5-dim-visitall-CLOSE-g3",
+    "5-dim-visitall-FAR-g1",
+    "5-dim-visitall-FAR-g2",
+    "5-dim-visitall-FAR-g3"
+  ],
+  "problems_per_family": [
+    0,
+    5,
+    9
+  ],
+  "task_count": 54,
+  "solvers": {
+    "folplan_astar": {
+      "revision": "af7581de7f596d0d76d4e7ec47bc9cb5c7121ea5",
+      "path": "/home/softdream/Programming/gits/pddl_fol/target/release/folplan",
+      "sha256": "135af92ed959f2f3a7d98a380242bdda5507cdac50ed5f1127870c45c624cf61"
+    },
+    "powerlifted": {
+      "revision": "bf54e169e782465b9bf74aa49424a6ffd8252838",
+      "path": "/tmp/powerlifted-pinned-bf54e169/powerlifted.py",
+      "sha256": "16b214441b56b51171061c13cfadc0d5cb24bc7598d51b0aaa727394bd70ac76",
+      "compatibility_patch_sha256": "85734a150f3a9bfc23984ff3c66f56ec8d5cdbcb1c7b466b0f74bde8468ba414",
+      "search": "alt-bfws1 + FF + Yannakakis + unit cost"
+    },
+    "tyr": {
+      "revision": "e0ea47a328e63ae2f35e1fc1d1b69c63d5505279",
+      "path": "/home/softdream/.local/share/tyr/build/exe/gbfs_lazy",
+      "sha256": "9c0f85e5e31bbb12f87ce791e9ea17a78ac20935ffbb21a9946d9875ab54d544",
+      "search": "single-core GBFS + RPG-FF + unit cost"
+    }
+  },
+  "timeout_s": 15,
+  "address_space_limit_bytes": 1073741824,
+  "plan_validation": "No independent validation of competitor plans; output records returned lengths only.",
+  "powerlifted_compatibility_patch": "/home/softdream/Programming/gits/pddl_fol/benchmarks/powerlifted-gcc16-compat.patch",
+  "oracle_csv": "oracle.csv",
+  "oracle_csv_sha256": "f2908753f7266581fa30dac99acb7be5f80ef6df2e81027981789b06e43f3197",
+  "dry_run": false,
+  "post_run_status_normalization": {
+    "corrected_rows": 16,
+    "from": "exit_22",
+    "to": "memory_limit",
+    "evidence": "corresponding Powerlifted log contains \u201cMemory limit has been reached.\u201d"
+  }
+}

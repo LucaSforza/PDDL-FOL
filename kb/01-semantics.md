@@ -86,10 +86,29 @@ evaluation. `max_ground_actions` counts distinct candidates emitted across
 search states, before the full precondition check. Returned
 plans are replayed before delivery.
 
+For A* only, a structurally recognized product-navigation fragment may build
+an optimal plan directly. Recognition must prove from the validated task,
+without checking domain/action names, that exactly one dynamic location tuple
+exists; each action changes exactly one coordinate along a static directed
+neighbor relation, deletes the old location, adds the new location and its
+monotone visited atom, and has no other relevant conditions or effects. The
+goal must be a positive conjunction of at most three distinct remaining ground
+visited tuples. Larger goal sets or any ambiguity fall back to generic A*.
+Let `d_i(x,y)` be shortest directed neighbor-path
+length in coordinate `i`; independent coordinate moves give exact location
+distance `d(x,y) = sum_i d_i(x_i,y_i)`. For the remaining goal tuples, choose
+a minimum-cost visit order in this metric, concatenate shortest coordinate
+paths, and replay the PDDL actions. This is optimal with unit action costs:
+every valid plan induces an order at least as costly, and the constructed
+walk attains the chosen order's cost. Unreachable tuples yield Unsolvable.
+The optimized path counts its initial and replayed successor states as
+`explored`, respects `max_states` on that count, and counts distinct witness
+actions against `max_ground_actions`; a breached action cap retains the
+GroundingLimit error kind. Explicit BFS always uses generic graph search.
+
 Configurable limits on stored states and ground actions prevent unbounded growth
 of the main data structures. They are not time limits: evaluating nested
-quantifiers can still be expensive. These algorithms remain educational, not
-suited to industrial instances. The chosen algorithm is visible in API and CLI.
+quantifiers can still be expensive. The chosen algorithm is visible in API and CLI.
 
 Input nesting is bounded at 256 levels. Semantic validation bounds action
 parameters and combined formula nesting/quantifier bindings at 256, before
