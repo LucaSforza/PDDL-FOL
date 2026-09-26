@@ -1,12 +1,13 @@
 use pddl_fol::{
-    ErrorKind, SearchLimits, SearchOutcome, Task, parse_dsl, parse_pddl, solve, validate,
+    ErrorKind, SearchAlgorithm, SearchLimits, SearchOutcome, Task, parse_dsl, parse_pddl,
+    solve_with_algorithm, validate,
 };
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-const USAGE: &str = "Usage:\n  folplan solve file.fol [--max-states N] [--max-ground-actions N]\n  folplan pddl domain.pddl problem.pddl [--max-states N] [--max-ground-actions N]\n  folplan check file.fol\n  folplan check-pddl domain.pddl problem.pddl\n  folplan --help";
+const USAGE: &str = "Usage:\n  folplan solve file.fol [--search astar|bfs] [--max-states N] [--max-ground-actions N]\n  folplan pddl domain.pddl problem.pddl [--search astar|bfs] [--max-states N] [--max-ground-actions N]\n  folplan check file.fol\n  folplan check-pddl domain.pddl problem.pddl\n  folplan --help";
 
 fn main() {
     process::exit(run(std::env::args_os().skip(1).collect()));
@@ -38,7 +39,7 @@ fn run(args: Vec<OsString>) -> i32 {
 }
 
 fn run_solve(args: &[OsString]) -> i32 {
-    let (paths, limits) = match parse_search_args(args, 1) {
+    let (paths, limits, algorithm) = match parse_search_args(args, 1) {
         Ok(parsed) => parsed,
         Err(message) => return argument_error(message),
     };
@@ -50,11 +51,11 @@ fn run_solve(args: &[OsString]) -> i32 {
         Ok(task) => task,
         Err(error) => return report_error(error.to_string(), 1),
     };
-    run_task(&task, limits)
+    run_task(&task, limits, algorithm)
 }
 
 fn run_pddl(args: &[OsString]) -> i32 {
-    let (paths, limits) = match parse_search_args(args, 2) {
+    let (paths, limits, algorithm) = match parse_search_args(args, 2) {
         Ok(parsed) => parsed,
         Err(message) => return argument_error(message),
     };
@@ -70,7 +71,7 @@ fn run_pddl(args: &[OsString]) -> i32 {
         Ok(task) => task,
         Err(error) => return report_error(error.to_string(), 1),
     };
-    run_task(&task, limits)
+    run_task(&task, limits, algorithm)
 }
 
 fn run_check(args: &[OsString]) -> i32 {
@@ -111,9 +112,10 @@ fn run_check_pddl(args: &[OsString]) -> i32 {
     }
 }
 
-fn run_task(task: &Task, limits: SearchLimits) -> i32 {
-    match solve(task, limits) {
+fn run_task(task: &Task, limits: SearchLimits, algorithm: SearchAlgorithm) -> i32 {
+    match solve_with_algorithm(task, limits, algorithm) {
         Ok(SearchOutcome::Solved(plan)) => {
+            println!("Search: {}", algorithm_name(algorithm));
             println!(
                 "Plan ({} step{}):",
                 plan.steps.len(),
@@ -131,11 +133,17 @@ fn run_task(task: &Task, limits: SearchLimits) -> i32 {
             0
         }
         Ok(SearchOutcome::Unsolvable { explored }) => {
-            println!("Impossible: no plan exists.\nStates explored: {explored}");
+            println!(
+                "Search: {}\nImpossible: no plan exists.\nStates explored: {explored}",
+                algorithm_name(algorithm)
+            );
             2
         }
         Ok(SearchOutcome::LimitReached { explored }) => {
-            println!("Search limit reached.\nStates explored: {explored}");
+            println!(
+                "Search: {}\nSearch limit reached.\nStates explored: {explored}",
+                algorithm_name(algorithm)
+            );
             3
         }
         Err(error) => report_error(
@@ -152,9 +160,11 @@ fn run_task(task: &Task, limits: SearchLimits) -> i32 {
 fn parse_search_args(
     args: &[OsString],
     path_count: usize,
-) -> Result<(Vec<PathBuf>, SearchLimits), String> {
+) -> Result<(Vec<PathBuf>, SearchLimits, SearchAlgorithm), String> {
     let mut paths = Vec::with_capacity(path_count);
     let mut limits = SearchLimits::default();
+    let mut algorithm = SearchAlgorithm::AStar;
+    let mut seen_search = false;
     let mut seen_states = false;
     let mut seen_ground = false;
     let mut index = 0;
@@ -163,7 +173,22 @@ fn parse_search_args(
         let option = item
             .to_str()
             .ok_or_else(|| "arguments must be valid UTF-8".to_owned())?;
-        if option == "--max-states" || option == "--max-ground-actions" {
+        if option == "--search" {
+            if seen_search {
+                return Err("--search may be specified only once".into());
+            }
+            let value = args
+                .get(index + 1)
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| "--search requires astar or bfs".to_owned())?;
+            algorithm = match value {
+                "astar" => SearchAlgorithm::AStar,
+                "bfs" => SearchAlgorithm::Bfs,
+                _ => return Err("--search must be astar or bfs".into()),
+            };
+            seen_search = true;
+            index += 2;
+        } else if option == "--max-states" || option == "--max-ground-actions" {
             let value = args
                 .get(index + 1)
                 .ok_or_else(|| format!("{option} requires a positive integer"))?;
@@ -205,7 +230,14 @@ fn parse_search_args(
             if path_count == 1 { "" } else { "s" }
         ));
     }
-    Ok((paths, limits))
+    Ok((paths, limits, algorithm))
+}
+
+fn algorithm_name(algorithm: SearchAlgorithm) -> &'static str {
+    match algorithm {
+        SearchAlgorithm::AStar => "A*",
+        SearchAlgorithm::Bfs => "BFS",
+    }
 }
 
 fn read_source(path: impl AsRef<Path>) -> Result<String, String> {

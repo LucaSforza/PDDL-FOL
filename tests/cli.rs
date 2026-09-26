@@ -40,6 +40,42 @@ fn every_dsl_example_validates_and_runs() {
 }
 
 #[test]
+fn search_flag_selects_algorithm_and_defaults_to_astar() {
+    let default = cli(&["solve", "examples/travel.fol"]);
+    assert_exit(&default, 0);
+    assert!(String::from_utf8_lossy(&default.stdout).contains("Search: A*"));
+
+    let astar = cli(&["solve", "examples/travel.fol", "--search", "astar"]);
+    assert_exit(&astar, 0);
+    assert!(String::from_utf8_lossy(&astar.stdout).contains("Search: A*"));
+
+    let bfs = cli(&["solve", "examples/travel.fol", "--search", "bfs"]);
+    assert_exit(&bfs, 0);
+    assert!(String::from_utf8_lossy(&bfs.stdout).contains("Search: BFS"));
+    assert_eq!(plan_steps(&default), plan_steps(&bfs));
+
+    let pddl = cli(&[
+        "pddl",
+        "examples/pddl/travel-domain.pddl",
+        "examples/pddl/travel-problem.pddl",
+        "--search",
+        "bfs",
+    ]);
+    assert_exit(&pddl, 0);
+    assert!(String::from_utf8_lossy(&pddl.stdout).contains("Search: BFS"));
+}
+
+fn plan_steps(output: &Output) -> Option<usize> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().find(|line| line.starts_with("Plan ("))?;
+    line.strip_prefix("Plan (")?
+        .split_once(" step")?
+        .0
+        .parse()
+        .ok()
+}
+
+#[test]
 fn every_pddl_example_validates_and_runs() {
     for (name, exit) in [
         ("travel", 0),
@@ -67,6 +103,16 @@ fn cli_reports_errors_and_resource_limits_with_distinct_exit_codes() {
         vec!["solve", "examples/travel.fol", "--max-states", "-1"],
         vec!["solve", "examples/travel.fol", "--max-states"],
         vec!["solve", "examples/travel.fol", "--unknown"],
+        vec!["solve", "examples/travel.fol", "--search", "dfs"],
+        vec!["solve", "examples/travel.fol", "--search"],
+        vec![
+            "solve",
+            "examples/travel.fol",
+            "--search",
+            "bfs",
+            "--search",
+            "astar",
+        ],
         vec!["check", "examples/travel.fol", "extra"],
         vec!["pddl", "examples/pddl/travel-domain.pddl"],
         vec![

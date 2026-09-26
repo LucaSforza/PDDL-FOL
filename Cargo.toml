@@ -13,3 +13,4 @@ name = "folplan"
 path = "src/main.rs"
 
 [dependencies]
+agent = { path = "vendor/agent" }

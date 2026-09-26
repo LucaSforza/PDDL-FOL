@@ -92,8 +92,8 @@ explicit errors. No negation in `:init`: use CWA. Unknown sections are errors.
 ## CLI
 
 ```text
-folplan solve file.fol [--max-states N] [--max-ground-actions N]
-folplan pddl domain.pddl problem.pddl [--max-states N] [--max-ground-actions N]
+folplan solve file.fol [--search astar|bfs] [--max-states N] [--max-ground-actions N]
+folplan pddl domain.pddl problem.pddl [--search astar|bfs] [--max-states N] [--max-ground-actions N]
 folplan check file.fol
 folplan check-pddl domain.pddl problem.pddl
 folplan --help
@@ -103,3 +103,6 @@ Human-readable output: numbered plan, situation term, and states explored.
 Exit codes: 0 for a plan or successful validation, 1 for I/O, syntax, semantic,
 or argument errors, 2 for impossible, and 3 for a search or grounding limit.
 Limits must be positive integers. The CLI must not panic on invalid input.
+Default search is `astar`; `bfs` is retained for reference and for comparing
+optimal plan lengths. Search selection never changes parsing or transition
+semantics.

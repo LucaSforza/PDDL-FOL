@@ -1,0 +1,16 @@
+// Synthetic independent inspection tasks; each action completes one goal.
+problem independent_inspections_12 {
+    types site;
+    objects { s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12: site; }
+    predicates { inspected(site); }
+    init: true;
+    goal: inspected(s1) and inspected(s2) and inspected(s3) and
+          inspected(s4) and inspected(s5) and inspected(s6) and
+          inspected(s7) and inspected(s8) and inspected(s9) and
+          inspected(s10) and inspected(s11) and inspected(s12);
+
+    action inspect(site: site) {
+        pre: true;
+        effect: inspected(site);
+    }
+}
