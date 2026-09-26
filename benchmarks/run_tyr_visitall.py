@@ -60,7 +60,7 @@ def measure(args, problem, run):
                                preexec_fn=cap_resources)
     try:
         stdout, stderr = process.communicate(timeout=TIMEOUT_S)
-        status = "solved" if process.returncode == 0 and plan.is_file() else f"exit_{process.returncode}"
+        status = "solved" if process.returncode == 0 else f"exit_{process.returncode}"
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         stdout, stderr = process.communicate()
@@ -69,7 +69,7 @@ def measure(args, problem, run):
     wall = time.perf_counter() - start
     log = stdout + "\n" + stderr
     plan_length = sum(line.strip().startswith("(") for line in plan.read_text().splitlines()) if plan.is_file() else ""
-    if status == "solved" and plan_length == "":
+    if status == "solved" and not plan.is_file():
         status = "no_plan_reported"
     if status == "solved":
         plan.unlink(missing_ok=True)
