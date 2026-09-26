@@ -2,29 +2,30 @@
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
-\usepackage{amsmath,booktabs,geometry,graphicx,hyperref}
+\usepackage{amsmath,booktabs,float,geometry,graphicx,hyperref}
 \geometry{margin=1.4cm}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
 
-\title{Lifted Successor Joins in a First-Order PDDL Planner:\\
-An HTG VisitAll Case Study}
+\title{Lifted Successor Joins and Admissible A*\\
+in a First-Order PDDL Planner: An HTG VisitAll Case Study}
 \author{Technical Report on \texttt{pddl\_fol}}
-\date{September 25, 2026}
+\date{September 26, 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We test whether the small \texttt{folplan} planner can compete on a
-hard-to-ground PDDL family. We replace complete Cartesian action grounding
-with joins between necessary positive precondition atoms and the current
-state, followed by full formula evaluation. On eight official five-dimensional
-VisitAll instances, the previous version solves one within a 1 GiB limit;
-the lifted version solves six. It beats the research-grade lifted planner
-Powerlifted in full-process latency on four shallow instances, reaching
-0.021 versus 0.118 seconds on \texttt{p8}. Powerlifted solves all eight and
-is substantially faster on deeper tasks. The result identifies a useful
-low-latency niche, not general planning competitiveness.
+We test a small \texttt{folplan} planner on eight official five-dimensional
+hard-to-ground VisitAll instances. Lifted joins replace complete Cartesian
+action grounding; an admissible goal-cover bound then guides A*. Under a 1 GiB
+memory cap and 15-second timeout, the older fully grounded indexed version
+solves one instance, lifted BFS solves six, and lifted A* solves seven.
+Powerlifted and the newer Tyr planner solve all eight. In same-host runs,
+A* has lower full-process latency than Powerlifted on five of the seven
+instances it solves and than Tyr on four shallow instances. On \texttt{p8},
+the times are 0.0073, 0.1273, and 0.0260 seconds, respectively. The
+comparators are faster on deeper cases; these latency wins identify a
+narrow use case rather than general planning superiority.
 \end{abstract}
 
 \section{Motivation and design}
@@ -33,6 +34,10 @@ dominate planning even when only a few actions are applicable in each state.
 Corr\^ea et al.\ describe lifted successor generation as conjunctive query
 evaluation~\cite{correa2020}. The indexed \texttt{folplan} baseline still
 grounded every typed parameter tuple before search~\cite{priorstudy}.
+Powerlifted is a strong published lifted baseline~\cite{powerlifted}. A newer
+Tyr study reports greater hard-to-ground coverage using parallel semi-naive
+Datalog evaluation~\cite{tyr2026}; a Powerlifted comparison alone is not a
+claim of overall state-of-the-art performance.
 
 For each schema, our new generator collects positive atoms reached only
 through conjunction in its precondition. It joins their arguments against
@@ -78,7 +83,7 @@ data are in \path{benchmarks/results/htg-visitall-summary.csv}.
 The command-line harness is \path{benchmarks/run_visitall.py}.
 
 \section{Results}
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
 \small
 \begin{tabular}{lrrrrr}
@@ -101,7 +106,7 @@ memory cap on all other instances.}
 \label{tab:results}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.80\linewidth]{figures/htg-visitall-performance.png}
 \caption{Runtime of solved cases and outcome of all four planners. Gaps in
@@ -126,19 +131,112 @@ configuration does not in general guarantee optimality. The results
 suggest that heuristic guidance and a more compact state representation,
 not more grounding work, are the next bottlenecks.
 
+\section{Admissible A* in the lifted planner}
+We retain lifted successor joins and use the \texttt{Agent} graph-search
+library for both BFS and A*. For a positive conjunctive goal, the new
+goal-cover lower bound divides the number of missing goal atoms by an upper
+bound on how many one action can add. Each VisitAll move adds exactly one
+\texttt{visited} fact, so the estimate is the number of unvisited goal facts.
+The full Cartesian grounding exceeds the 10,000-action threshold on these
+instances; delete-relaxed $h_{\max}$ is therefore skipped. Search and its
+replay check still evaluate the exact action and goal formulas. A* returns
+shortest plans with unit costs; Powerlifted's BFWS+FF configuration is
+satisficing and has no general optimality guarantee.
+
+We built \texttt{folplan} in release mode at commit \texttt{5c0360c} with
+\texttt{Agent} commit \texttt{7bee29a}. Powerlifted uses clean commit
+\texttt{bf54e169}, plus the archived
+\path{benchmarks/powerlifted-gcc16-compat.patch} adapting removed allocator
+APIs for GCC 16; the patch changes no search logic. Its release build uses
+\texttt{-Wno-error=stringop-overflow}. Both planners ran on the same AMD
+Ryzen 5 7640U under a 1 GiB address-space limit and 15-second wall timeout.
+\texttt{folplan} used 100,000 states and 1,000,000 distinct action candidates;
+Powerlifted used \texttt{alt-bfws1}, FF, Yannakakis joins, and unit costs.
+We alternated solver order and report medians of five full-process runs for
+each solved case. A failed solver was run once per instance. No other build
+ran during measurement. CPU frequency was not fixed. Raw rows, statuses,
+metadata, and the harness are in
+\path{benchmarks/results/astar-bfs-powerlifted-visitall/} and
+\path{benchmarks/run_heuristic_visitall.py}.
+
+We separately ran the newer Tyr executable at commit \texttt{e0ea47a} on
+the same host and corpus, after the first session had finished. Its lifted
+greedy best-first search used RPG-FF, unit costs, one Datalog thread, one
+search worker, and default preferred actions, matching the single-core
+algorithm family in its study~\cite{tyr2026}. The same 1 GiB and 15-second
+process caps applied, with five runs per instance. The executable was a
+Release build with GCC 16.2 and LTO disabled. All times include startup,
+parsing, and search. Tyr's raw measurements and reproducible runner are in
+\path{benchmarks/results/tyr-visitall/} and
+\path{benchmarks/run_tyr_visitall.py}; \texttt{just install-tyr} builds the
+pinned executable under the user's local installation directory. These
+measurements are a local
+comparison under our stricter limits, not a reproduction of Tyr's broader
+published evaluation. Tyr's greedy best-first search is also satisficing.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.84\linewidth]{figures/htg-visitall-heuristic-comparison.png}
+\caption{Wall time and coverage on all eight preselected instances. Solved
+points show medians; failure markers show the observed failed run.}
+\label{fig:astar-htg}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+Instance & Steps & A* (s) & BFS (s) & Powerlifted (s) & Tyr (s) & Expanded A*/BFS \\
+\midrule
+\texttt{p0} & 4  & 0.0114 & 0.0692 & 0.1264 & 0.0281 & 52/320 \\
+\texttt{p1} & 3  & 0.0054 & 0.0160 & 0.1248 & 0.0262 & 12/66 \\
+\texttt{p2} & 5  & 0.0746 & 0.4950 & 0.1459 & 0.0342 & 269/1731 \\
+\texttt{p3} & 6  & 0.6314 & M      & 0.1464 & 0.0492 & 2009/-- \\
+\texttt{p4} & 5  & 0.2390 & 1.7180 & 0.1316 & 0.0326 & 677/4550 \\
+\texttt{p5} & 3  & 0.0115 & 0.0668 & 0.1262 & 0.0238 & 30/181 \\
+\texttt{p8} & 3  & 0.0073 & 0.0323 & 0.1273 & 0.0260 & 13/74 \\
+\texttt{p9} & 13 & M      & M      & 2.0067 & 1.5479 & --/-- \\
+\bottomrule
+\end{tabular}
+\caption{New interleaved full-process medians on the same host. M denotes
+the 1 GiB memory cap. All solved runs found the same plan length.}
+\label{tab:astar-htg}
+\end{table}
+
+A* solves seven of eight instances versus six for BFS. It reduces expansions
+on every instance both solve and turns \texttt{p3} from a memory failure into
+a solved case. It is faster than Powerlifted in full-process time on five of
+its seven solved cases (\texttt{p0,p1,p2,p5,p8}); \texttt{p8} is about
+17.5 times faster. Against Tyr's full-process times, A* wins on four shallow
+instances (\texttt{p0,p1,p5,p8}); \texttt{p8} is about 3.6 times faster.
+Powerlifted and Tyr solve all eight and beat A* on the deeper
+\texttt{p3,p4}; Tyr also beats A* on \texttt{p2}. Powerlifted's search CPU
+time is only about 0.0025 seconds on \texttt{p8}; the full-process result
+includes its Python driver and translation. Thus the small-case advantage
+concerns deployment latency as well as search, and does not establish a
+faster search engine.
+
 \section{Limits and conclusion}
 This is one PDDL family, eight selected instances, one host, and one
 configuration per competitor. \texttt{astar(blind())} isolates a grounded
 Fast Downward baseline rather than its strongest heuristic portfolio.
-Comparisons between a Rust CLI and Powerlifted's Python driver measure
-deployment latency as well as planning work. The old and new
-\texttt{max-ground-actions} settings bound different quantities.
-Thus four latency wins establish a narrow use case for lifted joins,
-while Powerlifted's full coverage shows that the planner is not yet
-competitive on the harder part of this family.
+The Tyr runs used a later idle session, so small timing differences between
+sessions should not be overinterpreted. Full-process timings include each
+planner's startup and translation; they do not isolate search speed. The old
+and new \texttt{max-ground-actions} settings bound different quantities.
+
+Lifted joins let \texttt{folplan} reach instances that complete grounding
+cannot handle within these limits. The goal-cover bound makes A* much more
+effective than lifted BFS and gives lower end-to-end latency than both
+comparators on four shallow cases. Powerlifted and Tyr retain full coverage
+and substantially better times on the deeper instances. Generalizing the
+bound beyond positive conjunctive goals and reducing search-state memory
+are the clearest next steps.
 
 \small
 \begin{thebibliography}{9}
+\raggedright
 \bibitem{correa2020}
 A.~B. Corr\^ea, F. Pommerening, M. Helmert, and G. Franc\`es,
 "Lifted Successor Generation Using Query Optimization Techniques,"
@@ -149,6 +247,10 @@ A.~B. Corr\^ea and J. Seipp,
 "Best-First Width Search for Lifted Classical Planning,"
 \emph{ICAPS}, vol. 32, pp. 11--15, 2022.
 \url{https://doi.org/10.1609/icaps.v32i1.19780}.
+\bibitem{tyr2026}
+D. Drexler, O. Joergensen, and J. Seipp,
+"Parallel Lifted Planning via Semi-Naive Datalog Evaluation,"
+arXiv:2605.07584, 2026. \url{https://arxiv.org/abs/2605.07584}.
 \bibitem{htg}
 A.~B. Corr\^ea, \emph{htg-domains}, corpus commit \texttt{c5670ed2}.
 \url{https://github.com/abcorrea/htg-domains/tree/c5670ed289f58d3d6e104d7b06f311cf2f87b354}.

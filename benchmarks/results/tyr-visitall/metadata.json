@@ -1,0 +1,16 @@
+{
+  "tyr_commit": "e0ea47a328e63ae2f35e1fc1d1b69c63d5505279",
+  "tyr_binary_sha256": "7233405ee953dc6b165ba4240f5a2616c6d8b2739700424add951e9a09543bfc",
+  "tyr_build": "CMake Release; TYR_BUILD_EXECUTABLES=ON; TYR_ENABLE_LTO=OFF; GCC/G++ 16.2.1; pyyggdrasil 0.2.5; pypddl 1.2.1",
+  "htg_commit": "c5670ed289f58d3d6e104d7b06f311cf2f87b354",
+  "domain": "visitall-multidimensional/5-dim-visitall-CLOSE-g1",
+  "cases": [0, 1, 2, 3, 4, 5, 8, 9],
+  "runs_per_case": 5,
+  "timeout_s": 15,
+  "address_space_limit_gib": 1,
+  "host_cpu": "AMD Ryzen 5 7640U",
+  "host_os": "Linux 7.2.5",
+  "algorithm": "lifted GBFS lazy + RPG-FF, one Datalog thread and one search worker, unit heuristic/search costs, default preferred actions",
+  "command": "gbfs_lazy -D DOMAIN -P PROBLEM -O PLAN -N 1 -M 1 -H rpg_ff --heuristic-cost-type unit --search-cost-type unit -V 0",
+  "timing": "Full-process wall time; separate session after folplan/Powerlifted runs; no concurrent build"
+}

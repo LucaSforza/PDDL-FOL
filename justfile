@@ -66,3 +66,7 @@ install-fast-downward:
         exit 1
     fi
     ln -sfn "$source_dir/fast-downward.py" "$driver"
+
+# Build the pinned Tyr lifted GBFS + RPG-FF benchmark executable.
+install-tyr:
+    bash scripts/install_tyr.sh

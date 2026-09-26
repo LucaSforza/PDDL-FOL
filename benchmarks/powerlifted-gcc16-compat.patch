@@ -1,0 +1,28 @@
+diff --git a/src/search/utils/segmented_vector.h b/src/search/utils/segmented_vector.h
+index 3957798..c06fd27 100644
+--- a/src/search/utils/segmented_vector.h
++++ b/src/search/utils/segmented_vector.h
+@@ -6,2 +6,3 @@
+ #include <iostream>
++#include <memory>
+ #include <vector>
+@@ -46,3 +47,3 @@ template<class Entry, class Allocator = std::allocator<Entry>>
+ class SegmentedVector {
+-    using EntryAllocator = typename Allocator::template rebind<Entry>::other;
++    using EntryAllocator = std::allocator_traits<Allocator>::template rebind_alloc<Entry>;
+     // TODO: Try to find a good value for SEGMENT_BYTES.
+@@ -87,3 +88,3 @@ public:
+         for (size_t i = 0; i < the_size; ++i) {
+-            entry_allocator.destroy(&operator[](i));
++            std::allocator_traits<EntryAllocator>::destroy(entry_allocator, &operator[](i));
+         }
+@@ -120,3 +121,3 @@ public:
+         }
+-        entry_allocator.construct(segments[segment] + offset, entry);
++        std::allocator_traits<EntryAllocator>::construct(entry_allocator, segments[segment] + offset, entry);
+         ++the_size;
+@@ -125,3 +126,3 @@ public:
+     void pop_back() {
+-        entry_allocator.destroy(&operator[](the_size - 1));
++        std::allocator_traits<EntryAllocator>::destroy(entry_allocator, &operator[](the_size - 1));
+         --the_size;
