@@ -34,28 +34,62 @@ over finite models.
 ## Conversion pipeline
 
 DSL infix syntax and PDDL prefix syntax become the same typed formula AST.
-DSL effect literals become separate Add/Delete lists. Parameters are grounded
-over compatible objects; preconditions and quantifiers are evaluated with
-bindings on demand. No CNF, SAT, or resolution conversion is performed.
+DSL effect literals become separate Add/Delete lists. Search derives candidate
+action bindings by joining necessary positive conjuncts with state facts and
+completes unbound parameters over compatible objects. Preconditions and
+quantifiers are evaluated with bindings on demand. No CNF, SAT, or resolution
+conversion is performed.
 The implementation enforces successor-state axioms operationally through set
 updates; it does not export or prove an unrestricted axiom theory. A situation
-is an action history, distinct from its resulting state. BFS merges histories
+is an action history, distinct from its resulting state. Graph search merges histories
 with identical resulting states, while retaining one predecessor chain to
 construct the returned situation witness.
 
 ## Search
 
-Forward BFS, with ground actions obtained from the Cartesian product of typed
-domains, a visited set of canonical states, and predecessors for plan
-reconstruction. Plans are minimal in number of actions; search is complete if
-no limit is reached. Outcomes are distinct: plan (including the empty plan),
-unreachable after graph exhaustion, state limit reached, model error, or
-excessive grounding.
+Forward graph search, with lifted candidate joins and bounded Cartesian fallback
+for preconditions without necessary positive atoms, canonical state deduplication,
+and predecessors for plan reconstruction. The default is A* with unit action
+costs and an admissible bound described below. Explicit BFS remains available
+for comparison. Both return shortest plans and are complete on this finite
+state space if no limit is reached. Outcomes are distinct: plan (including the
+empty plan), unreachable after graph exhaustion, state limit reached, model
+error, or excessive grounding.
+
+For a goal that is a conjunction of positive ground atoms, `h_max` starts with
+cost 0 for atoms in the current state. For each action in a complete small grounding, positive
+conjunctive precondition atoms have relaxed action cost
+`1 + max(cost(precondition atoms))`; unsupported precondition structure is
+ignored, making the relaxation weaker but safe. Add effects receive the
+minimum such cost over actions. Delete effects are ignored. The goal estimate
+is the maximum cost of its atoms; a goal atom unreachable even in this
+complete relaxation makes the state a safe dead end. Large Cartesian groundings
+skip `h_max` and retain the goal-cover bound. For other FOL goal structures,
+the estimate is 0. No negative or quantified goal is silently reinterpreted.
+The exact evaluator still decides applicability and goal satisfaction.
+
+For the same positive conjunctive goal, let `m` be the number of currently
+false distinct goal atoms and `k` an upper bound on how many distinct goal
+atoms one action can add. The goal-cover lower bound is `ceil(m/k)`;
+when `m > 0` and `k = 0`, the goal is unreachable. One action can make at
+most `k` missing goal atoms true, so this bound is admissible and consistent.
+The maximum with `h_max` remains admissible and consistent. This deliberately
+counts actions shared across goals once, avoiding the inadmissible sum of
+individual relaxed costs.
+
+A* keeps the cheapest discovered path per state and reopens a state if a
+cheaper path arrives. It tests goals when removing a state from the frontier,
+uses deterministic tie breaking, and counts stored distinct states against
+`max_states`. Agent provides graph search machinery; this crate owns
+lifted candidate generation, FOL evaluation, transitions, and heuristic
+evaluation. `max_ground_actions` counts distinct candidates emitted across
+search states, before the full precondition check. Returned
+plans are replayed before delivery.
 
 Configurable limits on stored states and ground actions prevent unbounded growth
 of the main data structures. They are not time limits: evaluating nested
-quantifiers can still be expensive. BFS is educational, not suited to
-industrial instances. There are no hidden heuristics or semantic variants.
+quantifiers can still be expensive. These algorithms remain educational, not
+suited to industrial instances. The chosen algorithm is visible in API and CLI.
 
 Input nesting is bounded at 256 levels. Semantic validation bounds action
 parameters and combined formula nesting/quantifier bindings at 256, before

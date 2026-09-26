@@ -20,17 +20,23 @@ build-cli:
 build-lsp:
     cargo build --locked --manifest-path lsp/Cargo.toml
 
-# Run both test suites.
+# Run planner, language server, and Agent test suites.
 test:
     cargo test --locked
     cargo test --locked --manifest-path lsp/Cargo.toml
+    cargo test --locked --manifest-path vendor/agent/Cargo.toml
 
-# Check formatting and warnings in both crates.
+# Check formatting and warnings in all crates.
 check:
     cargo fmt --check
     cargo fmt --check --manifest-path lsp/Cargo.toml
+    cargo fmt --check --manifest-path vendor/agent/Cargo.toml
     cargo clippy --locked --all-targets -- -D warnings
     cargo clippy --locked --all-targets --manifest-path lsp/Cargo.toml -- -D warnings
+    cargo clippy --locked --all-targets --manifest-path vendor/agent/Cargo.toml -- -D warnings
+    RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps
+    RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps --manifest-path lsp/Cargo.toml
+    RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps --manifest-path vendor/agent/Cargo.toml
 
 # Install CLI, language server, and Neovim configuration and syntax.
 installation:

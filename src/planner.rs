@@ -1,15 +1,29 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::cell::RefCell;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap};
 
 use crate::logic::{eval_with_bindings, validate};
 use crate::model::{
     Action, Atom, Error, Formula, GroundAction, GroundAtom, Plan, SearchLimits, SearchOutcome,
     State, Task, Term,
 };
+use agent::problem::{CostructSolution, Problem, SuitableState, Utility};
+use agent::statexplorer::resolver::{GraphSearchAlgorithm, GraphSearchOutcome, bounded_search};
 
 const MAX_JOIN_ATOMS: usize = 256;
+const MAX_HMAX_GROUND_ACTIONS: usize = 10_000;
 
-/// Finds a shortest plan with forward breadth-first search.
+/// Finds a shortest plan with A* and admissible heuristics.
 pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> {
+    solve_with_algorithm(task, limits, crate::model::SearchAlgorithm::AStar)
+}
+
+/// Finds a shortest plan using the selected bounded graph-search algorithm.
+pub fn solve_with_algorithm(
+    task: &Task,
+    limits: SearchLimits,
+    algorithm: crate::model::SearchAlgorithm,
+) -> Result<SearchOutcome, Error> {
     validate(task)?;
     if limits.max_states == 0 {
         return Ok(SearchOutcome::LimitReached { explored: 0 });
@@ -21,74 +35,379 @@ pub fn solve(task: &Task, limits: SearchLimits) -> Result<SearchOutcome, Error> 
             explored: 1,
         }));
     }
-    let object_order: HashMap<&str, usize> = task
+    let goal_atoms = if algorithm == crate::model::SearchAlgorithm::AStar {
+        positive_ground_goal(&task.goal)
+    } else {
+        None
+    };
+    let hmax_ground_count = goal_atoms
+        .as_ref()
+        .and_then(|_| typed_ground_action_count(task, MAX_HMAX_GROUND_ACTIONS));
+    let relaxed = if let Some(count) = hmax_ground_count {
+        let grounding = ground_actions(task, count.max(1))?;
+        Some(build_relaxed_model(task, &grounding)?)
+    } else {
+        None
+    };
+    let max_goal_adds = goal_atoms
+        .as_ref()
+        .map(|goals| goal_add_upper_bound(task, goals));
+    let object_order = task
         .objects
         .iter()
         .enumerate()
         .map(|(index, object)| (object.name.as_str(), index))
         .collect();
-    let mut generated = BTreeSet::new();
-
-    struct Node {
-        state: State,
-        parent: Option<(usize, GroundAction)>,
+    let problem = PlannerProblem {
+        task,
+        object_order,
+        candidates: RefCell::new(CandidatePool::default()),
+        candidate_limit: limits.max_ground_actions,
+        relaxed,
+        goal_atoms,
+        max_goal_adds,
+        error: RefCell::new(None),
+        hmax_cache: RefCell::new(HashMap::new()),
+    };
+    let agent_algorithm = match algorithm {
+        crate::model::SearchAlgorithm::AStar => GraphSearchAlgorithm::AStar,
+        crate::model::SearchAlgorithm::Bfs => GraphSearchAlgorithm::BreadthFirst,
+    };
+    let result = bounded_search(
+        &problem,
+        task.initial.clone(),
+        agent_algorithm,
+        limits.max_states,
+    );
+    if let Some(error) = problem.error.borrow_mut().take() {
+        return Err(error);
     }
-
-    let mut nodes = vec![Node {
-        state: task.initial.clone(),
-        parent: None,
-    }];
-    let mut seen = BTreeMap::from([(task.initial.clone(), 0usize)]);
-    let mut queue = VecDeque::from([0usize]);
-    let mut explored = 0;
-    while let Some(index) = queue.pop_front() {
-        explored += 1;
-        let state = nodes[index].state.clone();
-        if eval_with_bindings(task, &state, &task.goal, &mut HashMap::new())? {
-            let mut steps = Vec::new();
-            let mut cursor = index;
-            while let Some((parent, action)) = nodes[cursor].parent.clone() {
-                steps.push(action);
-                cursor = parent;
+    match result {
+        GraphSearchOutcome::Solved {
+            state,
+            actions,
+            expanded,
+        } => {
+            let pool = problem.candidates.borrow();
+            let steps = actions
+                .iter()
+                .map(|index| {
+                    pool.actions
+                        .get(*index)
+                        .map(|(_, action)| action.clone())
+                        .ok_or_else(|| Error::new("search returned an invalid action index"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let replayed = replay(task, &steps)?;
+            if replayed != state {
+                return Err(Error::new(
+                    "search returned a plan whose replayed state differs",
+                ));
             }
-            steps.reverse();
-            return Ok(SearchOutcome::Solved(Plan {
+            Ok(SearchOutcome::Solved(Plan {
                 steps,
-                final_state: nodes[index].state.clone(),
-                explored,
-            }));
+                final_state: state,
+                explored: expanded,
+            }))
         }
-
-        let candidates = applicable_actions(
-            task,
-            &state,
-            limits.max_ground_actions,
-            &object_order,
-            &mut generated,
-        )?;
-        for (schema_index, ground) in &candidates {
-            let schema = &task.actions[*schema_index];
-            let env = action_environment(schema, ground);
-            if !eval_with_bindings(task, &state, &schema.precondition, &mut env.clone())? {
-                continue;
-            }
-            let next = apply(schema, ground, &state)?;
-            if seen.contains_key(&next) {
-                continue;
-            }
-            if nodes.len() >= limits.max_states {
-                return Ok(SearchOutcome::LimitReached { explored });
-            }
-            let next_index = nodes.len();
-            seen.insert(next.clone(), next_index);
-            nodes.push(Node {
-                state: next,
-                parent: Some((index, ground.clone())),
-            });
-            queue.push_back(next_index);
+        GraphSearchOutcome::Exhausted { expanded } => {
+            Ok(SearchOutcome::Unsolvable { explored: expanded })
+        }
+        GraphSearchOutcome::LimitReached { expanded } => {
+            Ok(SearchOutcome::LimitReached { explored: expanded })
         }
     }
-    Ok(SearchOutcome::Unsolvable { explored })
+}
+
+#[derive(Clone)]
+struct RelaxedAction {
+    preconditions: Vec<GroundAtom>,
+    add: Vec<GroundAtom>,
+}
+
+struct RelaxedModel {
+    actions: Vec<RelaxedAction>,
+    users: HashMap<GroundAtom, Vec<usize>>,
+    empty_precondition_actions: Vec<usize>,
+}
+
+#[derive(Default)]
+struct CandidatePool {
+    actions: Vec<(usize, GroundAction)>,
+    indices: BTreeMap<(usize, Vec<String>), usize>,
+}
+
+impl CandidatePool {
+    fn intern(
+        &mut self,
+        schema_index: usize,
+        action: GroundAction,
+        limit: usize,
+    ) -> Result<usize, Error> {
+        let key = (schema_index, action.arguments.clone());
+        if let Some(index) = self.indices.get(&key) {
+            return Ok(*index);
+        }
+        if self.actions.len() >= limit {
+            return Err(Error::grounding_limit(format!(
+                "ground action limit ({limit}) exceeded"
+            )));
+        }
+        let index = self.actions.len();
+        self.actions.push((schema_index, action));
+        self.indices.insert(key, index);
+        Ok(index)
+    }
+}
+
+fn build_relaxed_model(
+    task: &Task,
+    grounded: &[(usize, GroundAction)],
+) -> Result<RelaxedModel, Error> {
+    let mut actions = Vec::with_capacity(grounded.len());
+    for (schema_index, ground) in grounded {
+        let schema = &task.actions[*schema_index];
+        let env = action_environment(schema, ground);
+        let mut preconditions = relaxed_preconditions(&schema.precondition)
+            .iter()
+            .map(|atom| instantiate(atom, &env))
+            .collect::<Result<Vec<_>, _>>()?;
+        preconditions.sort_unstable();
+        preconditions.dedup();
+        let mut add = schema
+            .add
+            .iter()
+            .map(|atom| instantiate(atom, &env))
+            .collect::<Result<Vec<_>, _>>()?;
+        add.sort_unstable();
+        add.dedup();
+        actions.push(RelaxedAction { preconditions, add });
+    }
+    let mut users: HashMap<GroundAtom, Vec<usize>> = HashMap::new();
+    let mut empty_precondition_actions = Vec::new();
+    for (index, action) in actions.iter().enumerate() {
+        if action.preconditions.is_empty() {
+            empty_precondition_actions.push(index);
+        }
+        for precondition in &action.preconditions {
+            users.entry(precondition.clone()).or_default().push(index);
+        }
+    }
+    Ok(RelaxedModel {
+        actions,
+        users,
+        empty_precondition_actions,
+    })
+}
+
+struct PlannerProblem<'a> {
+    task: &'a Task,
+    object_order: HashMap<&'a str, usize>,
+    candidates: RefCell<CandidatePool>,
+    candidate_limit: usize,
+    relaxed: Option<RelaxedModel>,
+    goal_atoms: Option<Vec<GroundAtom>>,
+    max_goal_adds: Option<usize>,
+    error: RefCell<Option<Error>>,
+    hmax_cache: RefCell<HashMap<State, Option<u32>>>,
+}
+
+impl PlannerProblem<'_> {
+    fn remember_error(&self, error: Error) {
+        let mut slot = self.error.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(error);
+        }
+    }
+
+    fn relaxed_hmax(&self, state: &State) -> Option<u32> {
+        let goals = self.goal_atoms.as_ref()?;
+        let model = self.relaxed.as_ref()?;
+        if goals.is_empty() {
+            return Some(0);
+        }
+        let mut costs: HashMap<GroundAtom, u32> =
+            state.iter().cloned().map(|atom| (atom, 0)).collect();
+        let mut agenda = BinaryHeap::new();
+        let mut finalized = BTreeSet::new();
+        for atom in state {
+            agenda.push(Reverse((0, atom.clone())));
+        }
+        let mut remaining: Vec<usize> = model
+            .actions
+            .iter()
+            .map(|action| action.preconditions.len())
+            .collect();
+        let mut max_precondition_cost = vec![0; model.actions.len()];
+        let mut unresolved_goals = goals.len();
+        let mut max_goal_cost = 0;
+        for &index in &model.empty_precondition_actions {
+            for atom in &model.actions[index].add {
+                agenda.push(Reverse((1, atom.clone())));
+                costs
+                    .entry(atom.clone())
+                    .and_modify(|old| *old = (*old).min(1))
+                    .or_insert(1);
+            }
+        }
+        while let Some(Reverse((cost, atom))) = agenda.pop() {
+            if costs.get(&atom).copied() != Some(cost) || !finalized.insert(atom.clone()) {
+                continue;
+            }
+            if goals.binary_search(&atom).is_ok() {
+                unresolved_goals -= 1;
+                max_goal_cost = max_goal_cost.max(cost);
+                if unresolved_goals == 0 {
+                    return Some(max_goal_cost);
+                }
+            }
+            let Some(users) = model.users.get(&atom) else {
+                continue;
+            };
+            for &index in users {
+                remaining[index] -= 1;
+                max_precondition_cost[index] = max_precondition_cost[index].max(cost);
+                if remaining[index] != 0 {
+                    continue;
+                }
+                let effect_cost = max_precondition_cost[index].saturating_add(1);
+                for effect in &model.actions[index].add {
+                    if costs.get(effect).is_none_or(|old| effect_cost < *old) {
+                        costs.insert(effect.clone(), effect_cost);
+                        agenda.push(Reverse((effect_cost, effect.clone())));
+                    }
+                }
+            }
+        }
+        goals
+            .iter()
+            .map(|goal| costs.get(goal).copied())
+            .try_fold(0, |max, cost| cost.map(|cost| max.max(cost)))
+    }
+
+    fn goal_cover(&self, state: &State) -> Option<u32> {
+        let goals = self.goal_atoms.as_ref()?;
+        let missing = goals.iter().filter(|goal| !state.contains(*goal)).count();
+        if missing == 0 {
+            return Some(0);
+        }
+        let max_added = self.max_goal_adds?;
+        if max_added == 0 {
+            return None;
+        }
+        Some(missing.div_ceil(max_added) as u32)
+    }
+
+    fn cached_hmax(&self, state: &State) -> Option<u32> {
+        if let Some(cost) = self.hmax_cache.borrow().get(state).copied() {
+            return cost;
+        }
+        let cost = self.relaxed_hmax(state);
+        self.hmax_cache.borrow_mut().insert(state.clone(), cost);
+        cost
+    }
+
+    fn heuristic(&self, state: &State) -> u32 {
+        let Some(goals) = self.goal_atoms.as_ref() else {
+            return 0;
+        };
+        let cover = self.goal_cover(state).unwrap_or(0);
+        let h_max = if self.relaxed.is_some() {
+            self.cached_hmax(state).unwrap_or(0)
+        } else {
+            0
+        };
+        if goals.is_empty() {
+            0
+        } else {
+            h_max.max(cover)
+        }
+    }
+}
+
+impl Problem for PlannerProblem<'_> {
+    type State = State;
+}
+
+impl CostructSolution for PlannerProblem<'_> {
+    type Action = usize;
+    type Cost = u32;
+
+    fn executable_actions(&self, state: &Self::State) -> impl Iterator<Item = Self::Action> {
+        if self.goal_atoms.is_some()
+            && (self.goal_cover(state).is_none()
+                || (self.relaxed.is_some() && self.cached_hmax(state).is_none()))
+        {
+            return Vec::new().into_iter();
+        }
+        let candidates = {
+            let mut pool = self.candidates.borrow_mut();
+            match applicable_actions(
+                self.task,
+                state,
+                self.candidate_limit,
+                &self.object_order,
+                &mut pool,
+            ) {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    self.remember_error(error);
+                    Vec::new()
+                }
+            }
+        };
+        let pool = self.candidates.borrow();
+        candidates
+            .into_iter()
+            .filter(|&index| {
+                let (schema_index, ground) = &pool.actions[index];
+                let schema = &self.task.actions[*schema_index];
+                let mut env = action_environment(schema, ground);
+                match eval_with_bindings(self.task, state, &schema.precondition, &mut env) {
+                    Ok(applicable) => applicable,
+                    Err(error) => {
+                        self.remember_error(error);
+                        false
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    fn result(&self, state: &Self::State, action: &Self::Action) -> (Self::State, Self::Cost) {
+        let pool = self.candidates.borrow();
+        let Some((schema_index, ground)) = pool.actions.get(*action) else {
+            self.remember_error(Error::new("unknown grounded action index"));
+            return (state.clone(), 1);
+        };
+        let schema = &self.task.actions[*schema_index];
+        match apply(schema, ground, state) {
+            Ok(next) => (next, 1),
+            Err(error) => {
+                self.remember_error(error);
+                (state.clone(), 1)
+            }
+        }
+    }
+}
+
+impl Utility for PlannerProblem<'_> {
+    fn heuristic(&self, state: &Self::State) -> Self::Cost {
+        PlannerProblem::heuristic(self, state)
+    }
+}
+
+impl SuitableState for PlannerProblem<'_> {
+    fn is_suitable(&self, state: &Self::State) -> bool {
+        match eval_with_bindings(self.task, state, &self.task.goal, &mut HashMap::new()) {
+            Ok(suitable) => suitable,
+            Err(error) => {
+                self.remember_error(error);
+                false
+            }
+        }
+    }
 }
 
 /// Replays ground actions from the initial state, rejecting inapplicable steps.
@@ -121,7 +440,6 @@ pub fn replay(task: &Task, steps: &[GroundAction]) -> Result<State, Error> {
 
 // Only atoms reached through conjunction must hold in every applicable state.
 fn positive_conjuncts<'a>(formula: &'a Formula, atoms: &mut Vec<&'a Atom>) {
-    // Remaining conjuncts stay in the full formula check; this only bounds join recursion.
     if atoms.len() == MAX_JOIN_ATOMS {
         return;
     }
@@ -139,13 +457,121 @@ fn positive_conjuncts<'a>(formula: &'a Formula, atoms: &mut Vec<&'a Atom>) {
     }
 }
 
+fn relaxed_preconditions(formula: &Formula) -> Vec<&Atom> {
+    match formula {
+        Formula::Atom(atom) => vec![atom],
+        Formula::And(parts) => parts.iter().flat_map(relaxed_preconditions).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn positive_ground_goal(formula: &Formula) -> Option<Vec<GroundAtom>> {
+    fn collect(formula: &Formula, atoms: &mut Vec<GroundAtom>) -> Option<()> {
+        match formula {
+            Formula::Atom(atom) => {
+                let arguments = atom
+                    .terms
+                    .iter()
+                    .map(|term| match term {
+                        Term::Constant(name) => Some(name.clone()),
+                        Term::Variable(_) => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                atoms.push(GroundAtom {
+                    predicate: atom.predicate.clone(),
+                    arguments,
+                });
+                Some(())
+            }
+            Formula::And(parts) => {
+                for part in parts {
+                    collect(part, atoms)?;
+                }
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
+    let mut atoms = Vec::new();
+    collect(formula, &mut atoms)?;
+    atoms.sort_unstable();
+    atoms.dedup();
+    Some(atoms)
+}
+
+fn typed_ground_action_count(task: &Task, limit: usize) -> Option<usize> {
+    let mut total = 0usize;
+    for action in &task.actions {
+        let mut count = 1usize;
+        for parameter in &action.parameters {
+            let domain = task
+                .objects
+                .iter()
+                .filter(|object| parameter.ty == "object" || object.ty == parameter.ty)
+                .count();
+            count = count.checked_mul(domain)?;
+        }
+        total = total.checked_add(count)?;
+        if total > limit {
+            return None;
+        }
+    }
+    Some(total)
+}
+
+fn ground_actions(task: &Task, limit: usize) -> Result<Vec<(usize, GroundAction)>, Error> {
+    let mut result = Vec::new();
+    for (schema_index, action) in task.actions.iter().enumerate() {
+        complete_binding(task, action, 0, &mut HashMap::new(), &mut |binding| {
+            if result.len() >= limit {
+                return Err(Error::new("internal h_max grounding estimate was exceeded"));
+            }
+            result.push((
+                schema_index,
+                GroundAction {
+                    name: action.name.clone(),
+                    arguments: action
+                        .parameters
+                        .iter()
+                        .map(|parameter| binding[&parameter.name].clone())
+                        .collect(),
+                },
+            ));
+            Ok(())
+        })?;
+    }
+    Ok(result)
+}
+
+fn goal_add_upper_bound(task: &Task, goals: &[GroundAtom]) -> usize {
+    task.actions
+        .iter()
+        .map(|action| {
+            action
+                .add
+                .iter()
+                .filter(|effect| {
+                    goals.iter().any(|goal| {
+                        effect.predicate == goal.predicate
+                            && effect.terms.len() == goal.arguments.len()
+                    })
+                })
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                .len()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 fn applicable_actions(
     task: &Task,
     state: &State,
     limit: usize,
     object_order: &HashMap<&str, usize>,
-    generated: &mut BTreeSet<(usize, Vec<String>)>,
-) -> Result<Vec<(usize, GroundAction)>, Error> {
+    pool: &mut CandidatePool,
+) -> Result<Vec<usize>, Error> {
     let mut candidates = BTreeMap::new();
     for (schema_index, schema) in task.actions.iter().enumerate() {
         let mut atoms = Vec::new();
@@ -159,39 +585,35 @@ fn applicable_actions(
                 })
                 .count()
         });
-        let mut emit_binding = |binding: &HashMap<String, String>| {
-            let mut binding = binding.clone();
-            complete_binding(task, schema, 0, &mut binding, &mut |binding| {
-                let arguments = schema
-                    .parameters
-                    .iter()
-                    .map(|parameter| binding[&parameter.name].clone())
-                    .collect::<Vec<_>>();
-                let key = (schema_index, arguments.clone());
-                if generated.insert(key.clone()) && generated.len() > limit {
-                    return Err(Error::grounding_limit(format!(
-                        "ground action limit ({limit}) exceeded"
-                    )));
-                }
-                candidates.entry(key).or_insert_with(|| GroundAction {
-                    name: schema.name.clone(),
-                    arguments,
-                });
-                Ok(())
-            })
-        };
-        if atoms.is_empty() {
-            emit_binding(&HashMap::new())?;
-        } else {
-            join_atoms(state, &atoms, 0, &mut HashMap::new(), &mut emit_binding)?;
+        {
+            let mut emit_binding = |binding: &HashMap<String, String>| {
+                let mut binding = binding.clone();
+                complete_binding(task, schema, 0, &mut binding, &mut |binding| {
+                    let arguments = schema
+                        .parameters
+                        .iter()
+                        .map(|parameter| binding[&parameter.name].clone())
+                        .collect::<Vec<_>>();
+                    let key = (schema_index, arguments.clone());
+                    let candidate = GroundAction {
+                        name: schema.name.clone(),
+                        arguments,
+                    };
+                    let index = pool.intern(schema_index, candidate, limit)?;
+                    candidates.entry(key).or_insert(index);
+                    Ok(())
+                })
+            };
+            if atoms.is_empty() {
+                emit_binding(&HashMap::new())?;
+            } else {
+                join_atoms(state, &atoms, 0, &mut HashMap::new(), &mut emit_binding)?;
+            }
         }
     }
 
-    let mut result = candidates
-        .into_iter()
-        .map(|((schema_index, arguments), ground)| (schema_index, arguments, ground))
-        .collect::<Vec<_>>();
-    result.sort_by_key(|(schema_index, arguments, _)| {
+    let mut result = candidates.into_iter().collect::<Vec<_>>();
+    result.sort_by_key(|((schema_index, arguments), _)| {
         (
             *schema_index,
             arguments
@@ -200,10 +622,7 @@ fn applicable_actions(
                 .collect::<Vec<_>>(),
         )
     });
-    Ok(result
-        .into_iter()
-        .map(|(schema_index, _, ground)| (schema_index, ground))
-        .collect())
+    Ok(result.into_iter().map(|(_, index)| index).collect())
 }
 
 fn join_atoms(
@@ -658,5 +1077,251 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.message.contains("not applicable"));
+    }
+
+    #[test]
+    fn a_star_uses_goal_cover_to_reduce_independent_goal_expansions() {
+        let names = ["g0", "g1", "g2", "g3", "g4"];
+        let task = Task {
+            name: "independent-goals".into(),
+            types: vec![],
+            objects: vec![],
+            predicates: names
+                .iter()
+                .map(|name| Predicate {
+                    name: (*name).into(),
+                    parameters: vec![],
+                })
+                .collect(),
+            actions: names
+                .iter()
+                .map(|name| Action {
+                    name: format!("make-{name}"),
+                    parameters: vec![],
+                    precondition: Formula::And(vec![]),
+                    add: vec![Atom {
+                        predicate: (*name).into(),
+                        terms: vec![],
+                    }],
+                    delete: vec![],
+                })
+                .collect(),
+            initial: BTreeSet::new(),
+            goal: Formula::And(
+                names
+                    .iter()
+                    .map(|name| {
+                        Formula::Atom(Atom {
+                            predicate: (*name).into(),
+                            terms: vec![],
+                        })
+                    })
+                    .collect(),
+            ),
+        };
+        let limits = SearchLimits::default();
+        let astar = match solve_with_algorithm(&task, limits, crate::model::SearchAlgorithm::AStar)
+            .unwrap()
+        {
+            SearchOutcome::Solved(plan) => plan,
+            other => panic!("expected A* plan, got {other:?}"),
+        };
+        let bfs = match solve_with_algorithm(&task, limits, crate::model::SearchAlgorithm::Bfs)
+            .unwrap()
+        {
+            SearchOutcome::Solved(plan) => plan,
+            other => panic!("expected BFS plan, got {other:?}"),
+        };
+        assert_eq!(astar.steps.len(), 5);
+        assert_eq!(astar.steps.len(), bfs.steps.len());
+        assert!(astar.explored < bfs.explored, "A*={astar:?}, BFS={bfs:?}");
+        assert_eq!(replay(&task, &astar.steps).unwrap(), astar.final_state);
+    }
+
+    #[test]
+    fn unsupported_goal_structure_uses_zero_heuristic_and_is_not_pruned() {
+        let mut task = travel_task();
+        task.goal = Formula::Not(Box::new(Formula::Atom(Atom {
+            predicate: "at".into(),
+            terms: vec![Term::Constant("a".into())],
+        })));
+        let astar = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::AStar,
+        )
+        .unwrap();
+        let bfs = solve_with_algorithm(
+            &task,
+            SearchLimits::default(),
+            crate::model::SearchAlgorithm::Bfs,
+        )
+        .unwrap();
+        assert_eq!(astar, bfs);
+    }
+
+    #[test]
+    fn composite_heuristic_is_admissible_and_consistent_on_a_finite_graph() {
+        use std::collections::{BTreeMap, VecDeque};
+
+        let atom = |predicate: &str| Atom {
+            predicate: predicate.into(),
+            terms: vec![],
+        };
+        let ground = |predicate: &str| GroundAtom {
+            predicate: predicate.into(),
+            arguments: vec![],
+        };
+        let task = Task {
+            name: "heuristic-check".into(),
+            types: vec![],
+            objects: vec![],
+            predicates: ["ready", "a", "b", "c"]
+                .iter()
+                .map(|name| Predicate {
+                    name: (*name).into(),
+                    parameters: vec![],
+                })
+                .collect(),
+            actions: vec![
+                Action {
+                    name: "prepare".into(),
+                    parameters: vec![],
+                    precondition: Formula::And(vec![]),
+                    add: vec![atom("ready")],
+                    delete: vec![],
+                },
+                Action {
+                    name: "get-a".into(),
+                    parameters: vec![],
+                    precondition: Formula::Atom(atom("ready")),
+                    add: vec![atom("a")],
+                    delete: vec![],
+                },
+                Action {
+                    name: "get-b".into(),
+                    parameters: vec![],
+                    precondition: Formula::Atom(atom("ready")),
+                    add: vec![atom("b")],
+                    delete: vec![],
+                },
+                Action {
+                    name: "get-c".into(),
+                    parameters: vec![],
+                    precondition: Formula::Atom(atom("ready")),
+                    add: vec![atom("c")],
+                    delete: vec![],
+                },
+                Action {
+                    name: "consume-ready".into(),
+                    parameters: vec![],
+                    precondition: Formula::And(vec![
+                        Formula::Atom(atom("b")),
+                        Formula::Atom(atom("c")),
+                    ]),
+                    add: vec![],
+                    delete: vec![atom("ready")],
+                },
+                Action {
+                    name: "erase-a".into(),
+                    parameters: vec![],
+                    precondition: Formula::Atom(atom("b")),
+                    add: vec![],
+                    delete: vec![atom("a")],
+                },
+            ],
+            initial: BTreeSet::new(),
+            goal: Formula::And(vec![
+                Formula::Atom(atom("a")),
+                Formula::Atom(atom("b")),
+                Formula::Atom(atom("c")),
+            ]),
+        };
+        let grounded = ground_actions(&task, 100).unwrap();
+        let goals = positive_ground_goal(&task.goal).unwrap();
+        let relaxed = build_relaxed_model(&task, &grounded).unwrap();
+        let max_goal_adds = goal_add_upper_bound(&task, &goals);
+        let object_order = task
+            .objects
+            .iter()
+            .enumerate()
+            .map(|(index, object)| (object.name.as_str(), index))
+            .collect();
+        let problem = PlannerProblem {
+            task: &task,
+            object_order,
+            candidates: RefCell::new(CandidatePool::default()),
+            candidate_limit: SearchLimits::default().max_ground_actions,
+            relaxed: Some(relaxed),
+            goal_atoms: Some(goals),
+            max_goal_adds: Some(max_goal_adds),
+            error: RefCell::new(None),
+            hmax_cache: RefCell::new(HashMap::new()),
+        };
+
+        let exact_distance = |start: &State| {
+            let mut queue = VecDeque::from([(start.clone(), 0usize)]);
+            let mut seen = BTreeSet::from([start.clone()]);
+            while let Some((state, distance)) = queue.pop_front() {
+                if eval_with_bindings(&task, &state, &task.goal, &mut HashMap::new()).unwrap() {
+                    return Some(distance);
+                }
+                for (schema_index, action) in &grounded {
+                    let schema = &task.actions[*schema_index];
+                    let mut env = action_environment(schema, action);
+                    if !eval_with_bindings(&task, &state, &schema.precondition, &mut env).unwrap() {
+                        continue;
+                    }
+                    let next = apply(schema, action, &state).unwrap();
+                    if seen.insert(next.clone()) {
+                        queue.push_back((next, distance + 1));
+                    }
+                }
+            }
+            None
+        };
+
+        let mut queue = VecDeque::from([task.initial.clone()]);
+        let mut reachable = BTreeMap::from([(task.initial.clone(), ())]);
+        let mut saw_hmax_dominate_cover = false;
+        let mut saw_cover_dominate_hmax = false;
+        while let Some(state) = queue.pop_front() {
+            let distance = exact_distance(&state).expect("all reachable states can reach the goal");
+            let estimate = problem.heuristic(&state) as usize;
+            let h_max = problem.cached_hmax(&state).unwrap() as usize;
+            let h_cover = problem.goal_cover(&state).unwrap() as usize;
+            saw_hmax_dominate_cover |= h_max > h_cover;
+            saw_cover_dominate_hmax |= h_cover > h_max;
+            assert!(
+                estimate <= distance,
+                "heuristic {estimate} overestimates distance {distance} from {state:?}"
+            );
+            for (schema_index, action) in &grounded {
+                let schema = &task.actions[*schema_index];
+                let mut env = action_environment(schema, action);
+                if !eval_with_bindings(&task, &state, &schema.precondition, &mut env).unwrap() {
+                    continue;
+                }
+                let next = apply(schema, action, &state).unwrap();
+                let cost = 1usize;
+                let next_estimate = problem.heuristic(&next) as usize;
+                assert!(
+                    estimate <= cost + next_estimate,
+                    "inconsistent edge h({state:?})={estimate} -> h({next:?})={next_estimate}"
+                );
+                if !reachable.contains_key(&next) {
+                    reachable.insert(next.clone(), ());
+                    queue.push_back(next);
+                }
+            }
+        }
+        assert!(saw_hmax_dominate_cover);
+        assert!(saw_cover_dominate_hmax);
+        assert!(reachable.contains_key(&BTreeSet::from([
+            ground("ready"),
+            ground("a"),
+            ground("b"),
+            ground("c")
+        ])));
     }
 }

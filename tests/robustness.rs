@@ -1,4 +1,7 @@
-use pddl_fol::{Binding, Formula, SearchLimits, SearchOutcome, parse_dsl, solve, validate};
+use pddl_fol::{
+    Binding, Formula, SearchAlgorithm, SearchLimits, SearchOutcome, parse_dsl, solve,
+    solve_with_algorithm, validate,
+};
 
 fn empty_task() -> pddl_fol::Task {
     parse_dsl("problem empty { types; objects {} predicates {} init: true; goal: false; }").unwrap()
@@ -67,7 +70,11 @@ fn visited_states_terminate_a_cycle_without_a_plan() {
     )
     .unwrap();
     assert!(matches!(
-        solve(&task, SearchLimits::default()).unwrap(),
+        solve_with_algorithm(&task, SearchLimits::default(), SearchAlgorithm::Bfs).unwrap(),
         SearchOutcome::Unsolvable { explored: 2 }
+    ));
+    assert!(matches!(
+        solve(&task, SearchLimits::default()).unwrap(),
+        SearchOutcome::Unsolvable { .. }
     ));
 }

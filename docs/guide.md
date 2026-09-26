@@ -4,7 +4,8 @@ FOLPlan models finite classical planning problems with typed objects,
 predicates, an initial situation, a goal, and STRIPS actions. Write models in
 the slide-like `.fol` language or use the supported subset of standard PDDL.
 The planner evaluates first-order formulas over a finite model and uses
-forward breadth-first search to find a shortest plan.
+forward A* search by default to find a shortest plan. Breadth-first search is
+available with `--search bfs`.
 
 ## A small travel problem
 
@@ -167,6 +168,22 @@ situation-calculus axioms. An already satisfied goal has the empty plan;
 exhausting the reachable graph proves it unreachable in this finite model.
 State and grounding limits report separately from an impossible goal.
 
+Lifted successor generation uses positive conjunctive precondition atoms to
+join action parameters with facts in the current state, then completes any
+remaining typed parameters. If a precondition has no usable positive atom, the
+planner uses a bounded Cartesian fallback over typed objects. This reduces
+candidate actions without changing the exact FOL precondition check or
+transition semantics.
+`--max-ground-actions` limits the distinct candidates emitted across the search
+after this filtering; it is not a time limit.
+
+By default, A* uses an admissible goal-cover bound when the goal is a
+conjunction of positive ground atoms. When the complete Cartesian action
+grounding is small enough, A* also computes delete-relaxed `h_max` and takes
+the maximum of both bounds. Larger models keep goal coverage without full
+grounding. For other goal forms the heuristic is zero. Use `--search bfs` to
+compare with breadth-first search; both algorithms return shortest plans.
+
 Parsers reject syntax nested beyond 256 levels. Semantic validation also
 limits action parameters to 256 and combined formula nesting and quantified
 bindings to 256, protecting recursive evaluation from oversized input.
@@ -191,17 +208,14 @@ predicates are outside the supported subset.
 ## Command line
 
 ```text
-folplan solve file.fol [--max-states N] [--max-ground-actions N]
-folplan pddl domain.pddl problem.pddl [--max-states N] [--max-ground-actions N]
+folplan solve file.fol [--search astar|bfs] [--max-states N] [--max-ground-actions N]
+folplan pddl domain.pddl problem.pddl [--search astar|bfs] [--max-states N] [--max-ground-actions N]
 folplan check file.fol
 folplan check-pddl domain.pddl problem.pddl
 folplan --help
 ```
 
-Limits must be positive integers. `--max-ground-actions` caps distinct grounded
-action candidates emitted across the search, after positive conjunctive
-preconditions have filtered them. Schemas without such atoms fall back to
-bounded Cartesian candidate generation. `check` parses and validates without search.
+Limits must be positive integers. `check` parses and validates without search.
 Exit status is `0` for a plan or successful validation, `1` for I/O, syntax,
 semantic, or argument errors, `2` when search proves the goal unreachable,
 and `3` when a state or grounding limit is reached.
@@ -241,11 +255,10 @@ assert_eq!(reached, plan.final_state);
 assert!(evaluate(&task, &reached, &task.goal).unwrap());
 ```
 
-The planner is a teaching-scale finite-state BFS. Nested quantifiers, wide
-joins, Cartesian fallback, and large reachable state spaces can be expensive.
-The model
-has no action costs, uncertainty, concurrency, numeric fluents, or external
-SAT/SMT solver.
+The planner is a teaching-scale finite-state A* search by default, with BFS
+available as a comparison. Nested quantifiers, wide joins, Cartesian fallback,
+and large reachable state spaces can be expensive. The model has no action
+costs, uncertainty, concurrency, numeric fluents, or external SAT/SMT solver.
 
 ## Example catalog
 

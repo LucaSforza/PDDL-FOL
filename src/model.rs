@@ -168,6 +168,15 @@ pub struct Plan {
     pub explored: usize,
 }
 
+/// Search strategy used by the planner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchAlgorithm {
+    /// A* with an admissible planning heuristic.
+    AStar,
+    /// Breadth-first search, retained as a reference implementation.
+    Bfs,
+}
+
 impl Plan {
     /// Renders the situation-calculus witness for this action sequence.
     pub fn situation(&self) -> String {
@@ -179,7 +188,7 @@ impl Plan {
     }
 }
 
-/// The result of an exhaustive bounded breadth-first search.
+/// The result of a bounded graph search.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchOutcome {
     Solved(Plan),
